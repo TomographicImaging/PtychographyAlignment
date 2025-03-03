@@ -4,3 +4,4 @@ dependencies:
   - scikit-image=0.18
   - python=3.10
   - ccpi:ccpi-viewer=24.1.0
+  - joblib #for parallel computation
