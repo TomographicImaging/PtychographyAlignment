@@ -1,53 +1,16 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import utils_tomo as utils
-from scipy.ndimage import gaussian_filter
-from scipy import optimize
-from scipy import signal
+from scipy.ndimage import gaussian_filter1d, measurements
+from scipy import optimize, signal
 from skimage.registration import phase_cross_correlation as register_translation
+from TomoRecon import get_volume
+
 
 def sin_func(x, a, w, b, c):
     return a * np.sin(w*x + b) + c
 
-def fit_com_to_sin(projections,angles,blur_filter = 2):
-    
-    #plt.figure()
-    
-    projections -= np.amin(projections)
-    summed = np.sum(projections[:,:,:],1)
-    
-    com = np.zeros([2,projections.shape[0]])
-    shifts = np.zeros([2,projections.shape[0]])
-    for i in range(projections.shape[0]):
-        com[:,i] = utils.ndimage.measurements.center_of_mass(summed[i,:])
-    
-    com_min = np.min(com[1,:])
-    com_max = np.max(com[1,:])
-    com_range = com_max - com_min
-    com_mid = com_min + com_range//2
-    
-    params, params_covariance = optimize.curve_fit(sin_func, angles, com[1,:], p0=[com_range, 1, 0, com_mid])
-    ideal = sin_func(angles_reduced, params[0], params[1], params[2], params[3])
-    
-    #ideal = (np.cos(angles)*com_range) + com_mid
-    
-    shifts[1,:] = ideal[:] - com[1,:]
-    shifts[1,:] = shifts[1,:] - shifts[1,0]
-    #shifts[1,:] = shifts[1,:]*overall_shift/np.max(abs(shifts[1,:]))
-    #shifts[1,:] = shifts[1,:]#*overall_shift/(abs(shifts[1,-1]))
 
-    #print("shifts[-1,:] ", shifts[-1,:])
-    
-    shifts[1,:] = scipy.ndimage.gaussian_filter1d(shifts[1,:],blur_filter)
-
-    plt.figure()
-    plt.plot(com[1,:],'bo')
-    plt.plot(ideal)
-    plt.plot(shifts[1,:],'r+')
-    #plt.legend(handles=['com','ideal','shifts'])
-
-    projections_out = apply_reprojection_shifts(projections, shifts, pad=1)
-    return projections_out, shifts
 
 
 
@@ -60,7 +23,7 @@ def calculate_com_projs(projections):
     com = np.zeros([2,projections.shape[0]])
     shifts = np.zeros([2,projections.shape[0]])
     for i in range(projections.shape[0]):
-        com[:,i] = utils.ndimage.measurements.center_of_mass(summed[i:i+1,:])
+        com[:,i] = measurements.center_of_mass(summed[i:i+1,:])
     
     return com
 
@@ -73,9 +36,56 @@ def calculate_com_projs_oriol(projections):
     com = np.zeros([2,projections.shape[0]])
     shifts = np.zeros([2,projections.shape[0]])
     for i in range(projections.shape[0]):
-        com[:,i] = utils.ndimage.measurements.center_of_mass((summed[i:i+1,:]))
+        com[:,i] = measurements.center_of_mass((summed[i:i+1,:]))
     
     return com
+
+class BaseClassAligment():
+
+    # This function uses the shifts calculated before to "move" the projections
+    def apply_reprojection_shifts(self, projections_in, shifts, pad=0):
+        projections_out = np.zeros_like(projections_in)
+        projections_pad = np.copy(utils.pad(projections_in, (pad,0)))
+        shifts = np.round(shifts).astype(np.int32)
+
+        for i in range(projections_in.shape[0]):
+    #         print("Applying shift [%d,%d] to projection %d" %(shifts[0,i], shifts[1,i], i))
+            projections_out[i] = np.roll(projections_pad[i], -1*shifts[0,i], axis=0)[:,pad:-pad]
+            projections_out[i] = np.roll(projections_pad[i], -1*shifts[1,i], axis=1)[:,pad:-pad]
+
+            #if i == 0:
+            #    plt.figure()
+            #    plt.imshow(projections_out[i])
+            #    plt.show()
+        
+    #     min_trans_x = int(np.floor(np.amin(shifts[1,:])))
+    #     max_trans_x = int(np.ceil(np.amax(shifts[1,:])))
+    #     if min_trans_x < 0:
+    #         x_to = min_trans_x
+    #     else:
+    #         x_to = -1
+        
+    #     if max_trans_x > 0:
+    #         x_from = max_trans_x
+    #     else:
+    #         x_from = 0
+            
+            
+    #     min_trans_y = int(np.floor(np.amin(shifts[0,:])))
+    #     max_trans_y = int(np.ceil(np.amax(shifts[0,:])))
+    #     if min_trans_y < 0:
+    #         y_to = min_trans_y
+    #     else:
+    #         y_to = -1
+        
+    #     if max_trans_y > 0:
+    #         y_from = max_trans_y
+    #     else:
+    #         y_from = 0
+
+    #     projections_out = projections_out[:,y_from:y_to,x_from:x_to]
+        
+        return projections_out
 
 class VerticalAlignment():
     def __init__(self, projections):
@@ -192,8 +202,8 @@ def get_reprojection_shifts_com(projections, reprojections, sub_sample=1, sigma=
             a = np.sum(image_a,0)
             b = np.sum(image_b,0)
 
-            coma = utils.ndimage.measurements.center_of_mass(a)
-            comb = utils.ndimage.measurements.center_of_mass(b)
+            coma = measurements.center_of_mass(a)
+            comb = measurements.center_of_mass(b)
             
             shifts[0,i] = coma[0]-comb[0]
             
@@ -207,7 +217,7 @@ def get_reprojection_shifts_com(projections, reprojections, sub_sample=1, sigma=
 
 
 # Alignment in the x-direction with cross-correlation
-class HorizontalAlignment():
+class HorizontalAlignment(BaseClassAligment):
     def __init__(self, projections_aligned_vert_fix2):
         self.projections_aligned_vert_fix2 = projections_aligned_vert_fix2
         self.correction_rough = self.horizontal_alignment()
@@ -228,62 +238,85 @@ class HorizontalAlignment():
         plt.plot(quick_xcorrelation[1,:])
         return quick_xcorrelation
     
-    # This function uses the shifts calculated before to "move" the projections
-    def apply_reprojection_shifts(self, projections_in, shifts, pad=0):
-        print("apply_reprojection_shifts")
-        projections_out = np.zeros_like(projections_in)
-        projections_pad = np.copy(utils.pad(projections_in, (pad,0)))
-        shifts = np.round(shifts).astype(np.int32)
-        
-    #     print("projections_in.shape", projections_in.shape)
-    #     print("projections_out.shape", projections_out.shape)
-    #     print("projections.shape", projections.shape)
-
-        for i in range(projections_in.shape[0]):
-    #         print("Applying shift [%d,%d] to projection %d" %(shifts[0,i], shifts[1,i], i))
-            projections_out[i] = np.roll(projections_pad[i], -1*shifts[0,i], axis=0)[:,pad:-pad]
-            projections_out[i] = np.roll(projections_pad[i], -1*shifts[1,i], axis=1)[:,pad:-pad]
-
-            #if i == 0:
-            #    plt.figure()
-            #    plt.imshow(projections_out[i])
-            #    plt.show()
-        
-    #     min_trans_x = int(np.floor(np.amin(shifts[1,:])))
-    #     max_trans_x = int(np.ceil(np.amax(shifts[1,:])))
-    #     if min_trans_x < 0:
-    #         x_to = min_trans_x
-    #     else:
-    #         x_to = -1
-        
-    #     if max_trans_x > 0:
-    #         x_from = max_trans_x
-    #     else:
-    #         x_from = 0
-            
-            
-    #     min_trans_y = int(np.floor(np.amin(shifts[0,:])))
-    #     max_trans_y = int(np.ceil(np.amax(shifts[0,:])))
-    #     if min_trans_y < 0:
-    #         y_to = min_trans_y
-    #     else:
-    #         y_to = -1
-        
-    #     if max_trans_y > 0:
-    #         y_from = max_trans_y
-    #     else:
-    #         y_from = 0
-
-    #     projections_out = projections_out[:,y_from:y_to,x_from:x_to]
-        
-        return projections_out
+    
 
     # apply the shifts from cross-correlation to the projections
     def horizontal_alignment(self):
         projections_aligned_vert_fix2 = self.projections_aligned_vert_fix2
         quick_xcorrelation = self.calculate_correlation()
-        import scipy
-        correction_rough = self.apply_reprojection_shifts(projections_aligned_vert_fix2, -scipy.ndimage.gaussian_filter1d(quick_xcorrelation,10), pad=1)
+        correction_rough = self.apply_reprojection_shifts(projections_aligned_vert_fix2, -gaussian_filter1d(quick_xcorrelation,10), pad=1)
         plt.imshow(projections_aligned_vert_fix2[:,200,:])
         plt.figure(),plt.imshow(correction_rough[:,200,:])
         return correction_rough
+
+class COMAligment(BaseClassAligment):
+
+    def __init__(self, projections_aligned_vert_fix, correction_rough, angles_reduced):
+        self.projections_aligned_vert_fix = projections_aligned_vert_fix
+        self.correction_rough = correction_rough
+        self.angles_reduced = angles_reduced
+
+        self.projections_fitted = self.alignment()
+
+    def fit_com_to_sin(self, projections, angles, blur_filter = 2):
+    
+        projections -= np.amin(projections)
+        summed = np.sum(projections[:,:,:],1)
+        
+        com = np.zeros([2,projections.shape[0]])
+        shifts = np.zeros([2,projections.shape[0]])
+        for i in range(projections.shape[0]):
+            com[:,i] = measurements.center_of_mass(summed[i,:])
+        
+        com_min = np.min(com[1,:])
+        com_max = np.max(com[1,:])
+        com_range = com_max - com_min
+        com_mid = com_min + com_range//2
+        
+        params, params_covariance = optimize.curve_fit(sin_func, angles, com[1,:], p0=[com_range, 1, 0, com_mid])
+        ideal = sin_func(self.angles_reduced, params[0], params[1], params[2], params[3])
+        
+        #ideal = (np.cos(angles)*com_range) + com_mid
+        
+        shifts[1,:] = ideal[:] - com[1,:]
+        shifts[1,:] = shifts[1,:] - shifts[1,0]
+        #shifts[1,:] = shifts[1,:]*overall_shift/np.max(abs(shifts[1,:]))
+        #shifts[1,:] = shifts[1,:]#*overall_shift/(abs(shifts[1,-1]))
+
+        #print("shifts[-1,:] ", shifts[-1,:])
+        
+        shifts[1,:] = gaussian_filter1d(shifts[1,:],blur_filter)
+
+        plt.figure()
+        plt.plot(com[1,:],'bo')
+        plt.plot(ideal)
+        plt.plot(shifts[1,:],'r+')
+        #plt.legend(handles=['com','ideal','shifts'])
+
+        projections_out = self.apply_reprojection_shifts(projections, shifts, pad=1)
+        return projections_out, shifts
+
+    def alignment(self):
+        """calculate the rough overall translation between 0 and 180 degrees by using cross-correlation between projection 1 
+        and the last projection, flipped
+        shifty = register_translation(projections_aligned_vert_fix[0,:,:],np.fliplr(projections_aligned_vert_fix[-1,:,:]),upsample_factor=100)
+        print('The shift between 0 deg and 180 deg is roughly ' + str(shifty[0][0]) + ' in the vertical direction and '
+                            + str(shifty[0][1]) + ' in the horizontal direction.')
+
+        Calculate the centre of mass (COM) for each projection of the scan. The COM should follow a sinusoidal motion.
+        Then fit a sinusoid and shift the projections as required to fit that sinusoid."""
+        projections_aligned_vert_fix = self.projections_aligned_vert_fix
+        correction_rough = self.correction_rough
+        angles_reduced = self.angles_reduced
+
+        projections_fitted, shifts_fitted = self.fit_com_to_sin(correction_rough,angles_reduced, blur_filter = 20)
+
+        plt.figure(figsize=[5,5])
+        plt.plot(shifts_fitted[1,:])
+
+        plt.figure(figsize=[7,5])
+        ax1 = plt.subplot(1,3,1), plt.imshow(projections_fitted[:,int(projections_fitted.shape[1]/2),:])
+        ax2 = plt.subplot(1,3,2), plt.imshow(projections_aligned_vert_fix[:,int(projections_aligned_vert_fix.shape[1]/2),:])
+        ax3 = plt.subplot(1,3,3), plt.imshow(projections_aligned_vert_fix[:,int(projections_aligned_vert_fix.shape[1]/2),:]-projections_fitted[:,int(projections_fitted.shape[1]/2),:])
+
+        return projections_fitted
