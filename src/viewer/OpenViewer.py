@@ -10,7 +10,7 @@ class OpenViewer():
         v.startRenderLoop()
 
 def test_open_viewer():
-    from io.Imports import ImportData
+    from io_module.Imports import ImportData
     ptytomofile = 'C:/Users/zvm34551/Coding_environment/DATA/Ptychography/pty_tomo_NX.h5'
     data = ImportData(ptytomofile)
     projections_raw= data.get_projections_raw()
