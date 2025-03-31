@@ -1,6 +1,6 @@
 import h5py
 import time
-import utils_tomo as utils 
+import utils.utils_tomo as utils 
 
 class ImportData():
     def __init__(self, filepath):

@@ -1,5 +1,5 @@
 from skimage.restoration import unwrap
-from TestData import TestData
+from tests.TestData import TestData
 
 class Unwrap():
     def __init__(self, projections_in, parallel = True):
@@ -26,7 +26,7 @@ def unwrap_slice(slice_data):
 
 
 def test_unwrap():
-    from OpenViewer import OpenViewer
+    from viewer.OpenViewer import OpenViewer
     data = TestData().data
     import numpy 
     numpy.set_printoptions(suppress=True)
@@ -36,7 +36,7 @@ def test_unwrap():
     Unwrap(data)
     OpenViewer(data)
 
-    from Imports import ImportData
+    from io.Imports import ImportData
     ptytomofile = 'C:/Users/zvm34551/Coding_environment/DATA/Ptychography/pty_tomo_NX.h5'
     data = ImportData(ptytomofile)
     projections_raw= data.get_projections_raw()

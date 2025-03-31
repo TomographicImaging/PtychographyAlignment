@@ -1,5 +1,5 @@
 import numpy as np
-from OpenViewer import OpenViewer
+from viewer.OpenViewer import OpenViewer
 
 class TestData():
     def __init__(self):

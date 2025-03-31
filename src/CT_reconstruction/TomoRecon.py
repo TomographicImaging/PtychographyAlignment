@@ -1,4 +1,4 @@
-import utils_tomo as utils 
+import utils.utils_tomo as utils 
 # Reconstructions function. For algorithms can use GRIDREC, SIRT, or FBP. It returns a 3D stack. 
 def get_volume(projections, angles, centre=None, pad=0, algorithm='GRIDREC', iterations=1):
     projections = utils.pad(projections, (pad,0))
