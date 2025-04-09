@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 projections_reduced = np.load(r"src\projections_reduced.npy")
 print("angle, vertical, horizontal = ",projections_reduced.shape)
 #If swapping x and y
-swap_xy =True #False
+swap_xy =True #False# True #
 if swap_xy ==True:
     projections_reduced = np.swapaxes(projections_reduced, 1, 2)
     align = "X" 
@@ -195,7 +195,7 @@ class VerticalAlignmentSwiss():
         error = np.sum((new_psi_matrix - avg_psi) ** 2)
         #print(new_psi_matrix)
     
-    def align_projections(self, psi, max_shift=25, iterations=1):
+    def align_projections(self, psi, max_shift=500, iterations=1):
         """
         Iteratively align projections by minimizing E^2.
 
@@ -212,7 +212,7 @@ class VerticalAlignmentSwiss():
         delta_y_1D = np.zeros(Nth, dtype=int)  # Initialize shifts to zero
 
         for _ in range(iterations):  # Iterate to refine alignment
-            for theta in range(1, 3):#Nth):  # Process each projection separately, 0 is the reference
+            for theta in range(1, Nth):  # Process each projection separately, 0 is the reference
                 #print("theta iteration is ", theta)
                 shift_range = range(-max_shift, max_shift + 1)
                 #print("shift range is", shift_range)
