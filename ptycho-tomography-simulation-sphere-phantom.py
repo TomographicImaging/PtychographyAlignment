@@ -18,7 +18,9 @@ from scipy.spatial.transform import Rotation as R
 from cil.io import TIFFWriter
 
 # %%
-simulation_name = "sphere_phantom"
+simulation_name = "sphere_phantom_jitter"
+
+# change to pixels
 output_path = "output_data"
 if not os.path.exists(output_path):
     os.makedirs(output_path)
@@ -40,18 +42,20 @@ print("Set up the detector")
 gvxr.setDetectorPosition(0.0, 5.0, 0.0, "mm")
 gvxr.setDetectorUpVector(0, 0, 1)
 gvxr.setDetectorNumberOfPixels(300, 300)
-gvxr.setDetectorPixelSize(0.5, 0.5, "um")
+gvxr.setDetectorPixelSize(1, 1, "um")
 
 # %% Get a sample
-gvxr.makeSphere(simulation_name, 100, 100, 50, "um")
+gvxr.removePolygonMeshesFromSceneGraph()
+large_sphere_radius = 100
+gvxr.makeSphere(simulation_name, 100, 100, large_sphere_radius, "um")
 
-x = [-30, 20, 10]
-y = [-20, -15, 30]
+x = [-60, 30, 20]
+y = [-40, -30, 60]
 z = [0, -5, 0]
-size = [10, 20, 15]
+sphere_radii = [20, 40, 30]
 for i in np.arange(len(x)):
     sphere_name = f"sphere_{i}"
-    gvxr.makeSphere(sphere_name, 50, 50, size[i], "um")
+    gvxr.makeSphere(sphere_name, 50, 50, sphere_radii[i], "um")
     gvxr.translateNode(sphere_name, x[i], z[i], y[i], "um")
     gvxr.applyCurrentLocalTransformation(sphere_name)
     
@@ -66,33 +70,83 @@ print("Compute an X-ray image")
 gvxr.displayScene()
 x_ray_image = np.array(gvxr.computeXRayImage()) / gvxr.getTotalEnergyWithDetectorResponse()
 show2D(x_ray_image)
-# %% Simulate a CT scan
+# %% Generate the noise
+generate_noise = True
+
 start = 0
-stop = 360
-step = 1
+stop = 180
+step = 0.2
 angle_set = np.arange(start, stop, step)
-xray_image_set = np.zeros((stop, gvxr.getDetectorNumberOfPixels()[1], gvxr.getDetectorNumberOfPixels()[0]))
-rng = np.random.default_rng()
-max_jitter_x = 0# 1 # 1-2% of sample size movement projection to projection
-max_jitter_y = 0# # 1-2% of sample size movement projection to projection
-jitter_x = np.zeros(len(angle_set))
-jitter_y = np.zeros(len(angle_set))
-for i in angle_set:
+xray_image_set = np.zeros((len(angle_set), gvxr.getDetectorNumberOfPixels()[1], gvxr.getDetectorNumberOfPixels()[0]))
+delta_x = np.zeros(len(angle_set))
+delta_y = np.zeros(len(angle_set))
+if generate_noise:
+
+    # random jitter
+    rng = np.random.default_rng()
+    max_jitter_x = 0.005*gvxr.getDetectorSize("um")[0] # 0.5% of sample size movement projection to projection
+    max_jitter_y = 0.005*gvxr.getDetectorSize("um")[1] # 0.5% of sample size movement projection to projection
+    damping = 0.02  # how strongly the system corrects random walk
+    random_walk_x = 0.0
+    random_walk_y = 0.0
+    
+    # thermal expansion
+    delta_T = 2 # change in temperature
+    alpha = 10 # coefficient of linear thermal expansion (~Al)
+    expansion = 1*alpha*(delta_T) # total length change
+    t_expansion = 300 # period over which the thermal expansion occurs (projections)
+    delta_L = (1-expansion)/t_expansion # length change per projection
+    thermal_x = 0.0
+    thermal_y = 0.0
+
+    # oscillation
+    oscillation_frequency = 0.9
+    oscillation_amplitude_x = 0.005*gvxr.getDetectorSize("um")[0] # 0.5% of sample size movement projection to projection
+    oscillation_amplitude_y = 0.005*gvxr.getDetectorSize("um")[1] # 0.5% of sample size movement projection to projection
+    osc_x = 0
+    osc_y = 0
+    
+    for i in np.arange(len(angle_set)):
+        jitter_step_x = rng.uniform(-max_jitter_x , max_jitter_x)
+        jitter_step_y = rng.uniform(-max_jitter_y , max_jitter_y)
+        # Damped random walk
+        random_walk_x += jitter_step_x - damping * random_walk_x
+        random_walk_y += jitter_step_y - damping * random_walk_y
+
+        if i < t_expansion:
+            thermal_x += delta_L
+            thermal_y += delta_L
+
+        osc_x += oscillation_amplitude_x * (0.7 * np.sin(oscillation_frequency * i) + 0.3 * np.cos(0.5*oscillation_frequency * i))
+        osc_y += oscillation_amplitude_y * (0.7 * np.sin(oscillation_frequency * i) + 0.3 * np.cos(0.5*oscillation_frequency * i))
+
+        osc_x += oscillation_amplitude_x * np.sin(oscillation_frequency * i)
+        osc_y += oscillation_amplitude_y * np.sin(oscillation_frequency * i)
+
+        delta_x[i] = int(thermal_x + random_walk_x + osc_x) # int for now
+        delta_y[i] = int(thermal_y + random_walk_y + osc_y) # int for now
+
+    jitter_real_x = np.load('delta_x_1D_fullNth_1it.npy')
+    jitter_real_y = np.load('delta_y_1D_fullNth_1it.npy')
+    plt.plot(delta_x)
+    plt.plot(delta_y)
+    plt.plot(jitter_real_y)
+
+# %% Simulate a CT scan
+for i in np.arange(len(angle_set)):
     # Rotate
     gvxr.rotateNode(simulation_name, step, 0, 0, 1)
 
     # Shift
-    jitter_x[i] = (rng.random()*(max_jitter_x*2))-max_jitter_x
-    jitter_y[i] = (rng.random()*(max_jitter_y*2))-max_jitter_y
-    print(jitter_x[i], jitter_y[i])
-    gvxr.translateNode(simulation_name, jitter_x[i], 0, jitter_y[i], "um")
+    print(delta_x[i], delta_y[i])
+    gvxr.translateNode(simulation_name, delta_x[i], 0, delta_y[i], "um")
 
     # Compute xray image
     xray_image = np.array(gvxr.computeXRayImage(), dtype=np.single)/ gvxr.getTotalEnergyWithDetectorResponse()
     xray_image_set[i] = xray_image
 
     # Restore the initial state
-    gvxr.translateNode(simulation_name, -jitter_x[i], 0, -jitter_y[i], "um")
+    gvxr.translateNode(simulation_name, -delta_x[i], 0, -delta_y[i], "um")
 
 islicer(xray_image_set)
 # %% Save the simulated projections as tiff files
@@ -106,9 +160,12 @@ for i, img in enumerate(xray_image_set):
     fname = os.path.join(output_path, sub_folder, simulation_name + "_simulation_" + str(i).zfill(4) + ".tif")
     imwrite(fname, img.astype(np.float32), photometric='minisblack')
 
+np.save(os.path.join(output_path, simulation_name + "_simulation_" + str(len(xray_image_set)) + '_projections.npy'),
+        xray_image_set)
+
 # save the jitter arrays
-np.save(os.path.join(output_path, simulation_name + "_delta_x.npy"), jitter_x)
-np.save(os.path.join(output_path, simulation_name + "_delta_y.npy"), jitter_y)
+np.save(os.path.join(output_path, simulation_name + "_delta_x.npy"), delta_x)
+np.save(os.path.join(output_path, simulation_name + "_delta_y.npy"), delta_y)
 
 # %% Save the current simulation states in a JSON file.
 json_fname = os.path.join(output_path, simulation_name + "_simulation_" + str(len(xray_image_set)) + ".json") 
@@ -176,3 +233,4 @@ islicer(recon)
 from cil.io import NEXUSDataWriter
 writer = NEXUSDataWriter(recon, os.path.join(output_path, simulation_name + "_recon") )
 writer.write()
+# %%
