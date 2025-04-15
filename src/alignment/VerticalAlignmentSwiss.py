@@ -2,58 +2,60 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # Load the saved array
-projections_reduced = np.load(r"src\projections_reduced.npy")
-print("angle, vertical, horizontal = ",projections_reduced.shape)
-#If swapping x and y
-swap_xy =True #False# True #
-if swap_xy ==True:
-    projections_reduced = np.swapaxes(projections_reduced, 1, 2)
-    align = "X" 
-    other = "Y"
-else:
-    align = "Y"
-    other = "X"
+#projections_reduced = np.load(r"src\projections_reduced.npy")
+#print("angle, vertical, horizontal = ",projections_reduced.shape)
+#swap_xy =True #False# True #
+#angles_reduced = np.load(r"src\angles_reduced.npy")
 
-angles_reduced = np.load(r"src\angles_reduced.npy")
 
-def plot_array(arr,title = "Plot",x_label=other,y_label=align):# Create a plot
-    fig = plt.figure(figsize=(8, 6))
-    ax = fig.add_subplot(111)
-    c = ax.imshow(arr, cmap='gray', interpolation='nearest')  # Using the middle slice for visualization
-    # Add a color bar
-    fig.colorbar(c, ax=ax, label="Phase (radians)")
-    # Add labels and title
-    ax.set_title(title)
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-
-    plt.show()
-
-def plot_1D(arr1D,title = "Plot",x_label=other,y_label=align, label = 'average'):# Create a plot
-    fig = plt.figure(figsize=(8, 6))
-    ax = fig.add_subplot(111)
-    c = ax.plot(arr1D, label=label, color='blue')  # Using the middle slice for visualization
-    # Add labels and title
-    ax.set_title(title)
-    ax.set_xlabel(x_label)
-    ax.set_ylabel(y_label)
-
-    plt.show()
 
 class VerticalAlignmentSwiss():
-    def __init__(self):
+    def __init__(self, projections_reduced, max_shift=50, swap_xy = False):
+        #If swapping x and y
+        
+        if swap_xy ==True:
+            projections_reduced = np.swapaxes(projections_reduced, 1, 2)
+            self.align = "X" 
+            self.other = "Y"
+        else:
+            self.align = "Y"
+            self.other = "X"
         #self.data = self.create_data()
         self.data = projections_reduced
-        plot_array(self.data[0], "0th projection", other,align)
-        self.ROI = self.select_ROI(self.data)
-        plot_array(self.ROI[0], "0th projection ROI", other,align)
+        self.plot_array(self.data[0], "0th projection", self.other,self.align)
+        self.ROI = self.select_ROI(self.data,swap_xy)
+        self.plot_array(self.ROI[0], "0th projection ROI", self.other,self.align)
         M = self.calculate_M()
         psi = self.remove_legendre_terms_matrix(M, degree=1)
         self.test_shift_psi_by_array(psi)
         self.test_compute_error(psi)
-        self.delta_y_1D_final = self.align_projections(psi)
+        self.delta_y_1D_final = self.align_projections(psi, max_shift)
         psi_final = self.shift_psi_by_array(psi, self.delta_y_1D_final)[0]
-        plot_array(np.transpose(psi_final), f"psi_theta({align}) shifted",  'projection #', align)
+        self.plot_array(np.transpose(psi_final), f"psi_theta({self.align}) shifted",  'projection #', self.align)
+
+    def plot_array(self,arr,title,x_label,y_label):# Create a plot
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111)
+        c = ax.imshow(arr, cmap='gray', interpolation='nearest')  # Using the middle slice for visualization
+        # Add a color bar
+        fig.colorbar(c, ax=ax, label="Phase (radians)")
+        # Add labels and title
+        ax.set_title(title)
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+
+        plt.show()
+
+    def plot_1D(self,arr1D,title,x_label,y_label, label = 'average'):# Create a plot
+        fig = plt.figure(figsize=(8, 6))
+        ax = fig.add_subplot(111)
+        c = ax.plot(arr1D, label=label, color='blue')  # Using the middle slice for visualization
+        # Add labels and title
+        ax.set_title(title)
+        ax.set_xlabel(x_label)
+        ax.set_ylabel(y_label)
+
+        plt.show()
 
     def create_data(self):# Define dimensions
         (nx, ny, nth) = (2, 3, 4)  # (slices, height, width)
@@ -66,17 +68,18 @@ class VerticalAlignmentSwiss():
         #np.set_printoptions(suppress=True)
         return phase_stack
     
-    def select_ROI(self, arr):
+    def select_ROI(self, arr, swap_xy):
         if swap_xy == True:
             return arr[:,:,:]
         else:
-            return arr[:,100:600,:]
+            return arr[:,:,:]
+            #return arr[:,100:600,:]
 
     def calculate_M(self):
         arr = self.ROI
         #print(arr[0])
         M = np.sum(arr, axis=2)
-        plot_array(np.transpose(M), f"M_theta({align})",  'projection #', align)
+        self.plot_array(np.transpose(M), f"M_theta({self.align})",  'projection #', self.align)
         return M
     
     def remove_legendre_terms(f_y, degree=1):
@@ -138,7 +141,7 @@ class VerticalAlignmentSwiss():
 
         # Subtract trends and return result
         psi = M_y.T - f_legendre  # shape: (H, N)
-        plot_array(np.transpose(psi.T), f"psi_theta({align})",  'projection #', align)
+        self.plot_array(np.transpose(psi.T), f"psi_theta({self.align})",  'projection #', self.align)
         return psi.T  # shape back to (N, H)
     
     def shift_psi_by_array(self, psi, shifts_1D):
@@ -195,7 +198,7 @@ class VerticalAlignmentSwiss():
         error = np.sum((new_psi_matrix - avg_psi) ** 2)
         #print(new_psi_matrix)
     
-    def align_projections(self, psi, max_shift=500, iterations=1):
+    def align_projections(self, psi, max_shift, iterations=1):
         """
         Iteratively align projections by minimizing E^2.
 
@@ -234,8 +237,8 @@ class VerticalAlignmentSwiss():
         # Compute the average projection over all θ, using the current shifts
         shifted_projections, avg = self.shift_psi_by_array(psi, delta_y_1D)
         #print("avg is ",avg)
-        plot_1D(avg,"Average over the projection angle theta",align, "Average")
-        plot_array(np.transpose(shifted_projections), f"psi_theta({align}) shifted",  'projection #', align)
+        self.plot_1D(avg,"Average over the projection angle theta",self.align, "Average")
+        self.plot_array(np.transpose(shifted_projections), f"psi_theta({self.align}) shifted",  'projection #', self.align)
 
     def test_compute_error(self, psi):
         Nth, Ny = psi.shape
@@ -259,8 +262,8 @@ def plot():# Create a plot
 
     # Add labels and title
     ax.set_title("Phase Plot")
-    ax.set_xlabel(other)
-    ax.set_ylabel(align)
+    ax.set_xlabel(self.other)
+    ax.set_ylabel(self.align)
 
     plt.show()
 
@@ -268,13 +271,13 @@ def plot():# Create a plot
 
 
 def test_alignment():
-    va= VerticalAlignmentSwiss()
+    va= VerticalAlignmentSwiss(projections_reduced)
     if swap_xy ==True:
         np.save(r"src\delta_x_1D.npy", va.delta_y_1D_final)
     else:
         np.save(r"src\delta_y_1D.npy", va.delta_y_1D_final)
     
-test_alignment()
+#test_alignment()
 
 
 

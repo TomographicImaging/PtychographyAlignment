@@ -1,6 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import utils.utils_tomo as utils
+import utilities.utils_tomo as utils
 from scipy.ndimage import gaussian_filter1d, measurements
 from scipy import optimize, signal
 from skimage.registration import phase_cross_correlation as register_translation
