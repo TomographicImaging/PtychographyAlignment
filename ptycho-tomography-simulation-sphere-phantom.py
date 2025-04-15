@@ -18,7 +18,8 @@ from scipy.spatial.transform import Rotation as R
 from cil.io import TIFFWriter
 
 # %%
-simulation_name = "sphere_phantom_jitter"
+generate_noise = False
+simulation_name = "sphere_phantom"
 
 # change to pixels
 output_path = "output_data"
@@ -71,12 +72,12 @@ gvxr.displayScene()
 x_ray_image = np.array(gvxr.computeXRayImage()) / gvxr.getTotalEnergyWithDetectorResponse()
 show2D(x_ray_image)
 # %% Generate the noise
-generate_noise = True
-
 start = 0
 stop = 180
-step = 0.2
+step = 0.5
+include_last_angle = True
 angle_set = np.arange(start, stop, step)
+angle_set = np.linspace(start, stop, num=int((stop-start) / step) + 1, endpoint=True)
 xray_image_set = np.zeros((len(angle_set), gvxr.getDetectorNumberOfPixels()[1], gvxr.getDetectorNumberOfPixels()[0]))
 delta_x = np.zeros(len(angle_set))
 delta_y = np.zeros(len(angle_set))
@@ -164,8 +165,8 @@ np.save(os.path.join(output_path, simulation_name + "_simulation_" + str(len(xra
         xray_image_set)
 
 # save the jitter arrays
-np.save(os.path.join(output_path, simulation_name + "_delta_x.npy"), delta_x)
-np.save(os.path.join(output_path, simulation_name + "_delta_y.npy"), delta_y)
+np.save(os.path.join(output_path, simulation_name + "_delta_x_" + str(len(xray_image_set)) + ".npy"), delta_x)
+np.save(os.path.join(output_path, simulation_name + "_delta_y_" + str(len(xray_image_set)) + ".npy"), delta_y)
 
 # %% Save the current simulation states in a JSON file.
 json_fname = os.path.join(output_path, simulation_name + "_simulation_" + str(len(xray_image_set)) + ".json") 
@@ -197,7 +198,7 @@ params["Scan"] = {
     "AngleStep": step,
     "StartAngle": start,
     "FinalAngle": stop,
-    "IncludeLastAngle": True,  
+    "IncludeLastAngle": include_last_angle,  
     "Flat-Field Correction": False,
     "CentreOfRotation": list(gvxr.getCentreOfRotationPositionCT("mm")) + ["mm"],
     "RotationAxis": list(gvxr.getDetectorUpVector())
