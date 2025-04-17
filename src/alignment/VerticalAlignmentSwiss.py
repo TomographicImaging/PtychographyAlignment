@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 
 
 class VerticalAlignmentSwiss():
-    def __init__(self, projections_reduced, max_shift=50, swap_xy = False):
+    def __init__(self, projections_reduced, max_shift=50, iterations = 1, swap_xy = False):
         #If swapping x and y
         
         if swap_xy ==True:
@@ -29,7 +29,7 @@ class VerticalAlignmentSwiss():
         psi = self.remove_legendre_terms_matrix(M, degree=1)
         self.test_shift_psi_by_array(psi)
         self.test_compute_error(psi)
-        self.delta_y_1D_final = self.align_projections(psi, max_shift)
+        self.delta_y_1D_final = self.align_projections(psi, max_shift, iterations)
         psi_final = self.shift_psi_by_array(psi, self.delta_y_1D_final)[0]
         self.plot_array(np.transpose(psi_final), f"psi_theta({self.align}) shifted",  'projection #', self.align)
 
@@ -73,6 +73,7 @@ class VerticalAlignmentSwiss():
             return arr[:,:,:]
         else:
             return arr[:,:,:]
+            #return arr[:,100:200,:]
             #return arr[:,100:600,:]
 
     def calculate_M(self):
@@ -198,7 +199,7 @@ class VerticalAlignmentSwiss():
         error = np.sum((new_psi_matrix - avg_psi) ** 2)
         #print(new_psi_matrix)
     
-    def align_projections(self, psi, max_shift, iterations=1):
+    def align_projections(self, psi, max_shift, iterations):
         """
         Iteratively align projections by minimizing E^2.
 
@@ -225,7 +226,7 @@ class VerticalAlignmentSwiss():
                 #print("best shift for theta", theta, "is",best_shift)
                 delta_y_1D[theta] = best_shift  # Update shift for this projection
             print(delta_y_1D)
-            max_shift = 2*np.max(delta_y_1D)
+            #max_shift = 2*np.max(delta_y_1D)
 
         return delta_y_1D
 
@@ -245,8 +246,19 @@ class VerticalAlignmentSwiss():
         delta_y_1D = np.zeros(Nth, dtype=int)  # Initialize shifts to zero
         error = self.compute_error(psi, delta_y_1D, 0, 1) 
         print("error is ", error)
-                
 
+    def apply_y_shifts(self, projections, trans):
+        for th in range(projections.shape[0]):
+            shift = int(trans[th])
+            projections[th,:,:] = np.roll(projections[th,:,:],shift, axis=0)
+        return projections
+
+    def apply_x_shifts(self, projections, trans):
+        for th in range(projections.shape[0]):
+            shift = int(trans[th])
+            projections[th,:,:] = np.roll(projections[th,:,:],shift, axis=1)
+        return projections
+                
 def plot():# Create a plot
     data = VerticalAlignmentSwiss().data
     #print(data.shape)
