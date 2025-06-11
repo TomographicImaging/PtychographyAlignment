@@ -1,17 +1,19 @@
 import h5py
+import hdf5plugin #necessary to import nxs files
+#from hd5plugin import Blosc
 import time
-import utilities.utils_tomo as utils 
+import src.utilities.utils_tomo as utils 
 
 class ImportData():
-    def __init__(self, filepath):
+    def __init__(self, filepath, data_key, angle_key):
 
         with h5py.File(filepath, "r") as f:
             print(f.keys())
 
         # Upload the dataset. This step will take a while (~minutes) depending on the size of the dataset. 
         tic = time.time()
-        self.projections_raw, self.angles, self.probes = utils.load_data(filepath, data_key='/entry1/tomo_entry/data/data', 
-                                                        angle_key = '/entry1/tomo_entry/data/rotation_angle', 
+        self.projections_raw, self.angles, self.probes = utils.load_data(filepath, data_key, 
+                                                        angle_key, 
                                                         angle_idx=[0,None,1]) #data_key=''/entry/data/data'
         toc = time.time()
 
@@ -26,7 +28,6 @@ class ImportData():
 
     def get_probes(self):
         return self.probes 
-
 
 def test_import_data():
     ptytomofile = 'C:/Users/zvm34551/Coding_environment/DATA/Ptychography/pty_tomo_NX.h5'
