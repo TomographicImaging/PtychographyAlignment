@@ -33,11 +33,11 @@ projections_xyjitter = np.load(r"c:\Users\zvm34551\Coding_environment\DATA\Ptych
 
 # np.log(projections_jitter, out=projections_jitter)
 # np.negative(projections_jitter,out=projections_jitter)
-# delta_x_sim = np.load(r"c:\Users\zvm34551\Coding_environment\DATA\Ptychography\Simulations\20250415\sphere_phantom_jitter_delta_x_360.npy")
+delta_x_sim = np.load(r"c:\Users\zvm34551\Coding_environment\DATA\Ptychography\Simulations\20250415\sphere_phantom_jitter_delta_x_360.npy")
 delta_y_sim = np.load(r"c:\Users\zvm34551\Coding_environment\DATA\Ptychography\Simulations\20250416\sphere_phantom_jitter_delta_y_361.npy")
 delta_y_sim = 0.5*delta_y_sim #this is unknown why
-# #print(delta_x_sim)
-print(delta_y_sim)
+print(delta_x_sim, "deltaxsim")
+print(delta_y_sim, "deltaysim")
 #OpenViewer(projections_yjitter)
 OpenViewer(projections_xyjitter)
 # def apply_x_shifts(projections, trans):
