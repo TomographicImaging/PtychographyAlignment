@@ -5,3 +5,4 @@ dependencies:
   - python=3.10
   - ccpi:ccpi-viewer=24.1.0
   - joblib #for parallel computation
+  - hdf5plugin #for nxs import
