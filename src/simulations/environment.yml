@@ -1,4 +1,4 @@
-name: ptycho-sim2
+name: ptycho-sim
 channels:
     - conda-forge
     - https://software.repos.intel.com/python/conda
