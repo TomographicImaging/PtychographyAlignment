@@ -19,7 +19,7 @@ from cil.io import TIFFWriter
 
 # %%
 generate_noise = False
-simulation_name = "sphere_phantom"
+simulation_name = "sphere_phantom_nojitter"
 
 # change to pixels
 output_path = "output_data"
@@ -31,7 +31,7 @@ if not os.path.exists(output_path):
 print("Create an OpenGL context")
 gvxr.createOpenGLContext()
 print("Set up the beam")
-gvxr.setSourcePosition(0.0,  -5.0, 0.0, "mm")
+gvxr.setSourcePosition(0.0,  -1.0, 0.0, "mm")
 energy = 150
 energy_units = "keV"
 photons = 16000
@@ -40,7 +40,7 @@ gvxr.useParallelBeam()
 
 # Set up the detector
 print("Set up the detector")
-gvxr.setDetectorPosition(0.0, 5.0, 0.0, "mm")
+gvxr.setDetectorPosition(0.0, 1.0, 0.0, "mm")
 gvxr.setDetectorUpVector(0, 0, 1)
 gvxr.setDetectorNumberOfPixels(300, 300)
 gvxr.setDetectorPixelSize(1, 1, "um")
@@ -76,7 +76,7 @@ start = 0
 stop = 180
 step = 0.5
 include_last_angle = True
-angle_set = np.arange(start, stop, step)
+
 angle_set = np.linspace(start, stop, num=int((stop-start) / step) + 1, endpoint=True)
 xray_image_set = np.zeros((len(angle_set), gvxr.getDetectorNumberOfPixels()[1], gvxr.getDetectorNumberOfPixels()[0]))
 delta_x = np.zeros(len(angle_set))
@@ -136,22 +136,32 @@ if generate_noise:
 # %% Simulate a CT scan
 for i in np.arange(len(angle_set)):
     # Rotate
-    gvxr.rotateNode(simulation_name, step, 0, 0, 1)
+    gvxr.rotateNode(simulation_name, angle_set[i], 0, 0, 1)
 
     # Shift
     print(delta_x[i], delta_y[i])
-    gvxr.translateNode(simulation_name, delta_x[i], 0, delta_y[i], "um")
-
+    # gvxr.translateNode(simulation_name, delta_x[i], 0, delta_y[i], "um")
+    gvxr.setDetectorPosition(int(0), gvxr.getDetectorPosition("um")[1], int(0), "um")
     # Compute xray image
     xray_image = np.array(gvxr.computeXRayImage(), dtype=np.single)/ gvxr.getTotalEnergyWithDetectorResponse()
     xray_image_set[i] = xray_image
-
+    
+    # print(gvxr.rota)
     # Restore the initial state
-    gvxr.translateNode(simulation_name, -delta_x[i], 0, -delta_y[i], "um")
+    # gvxr.translateNode(simulation_name, -delta_x[i], 0, -delta_y[i], "um")
+    # gvxr.setDetectorPosition(-delta_x[i], gvxr.getDetectorPosition("um")[1], -delta_y[i], "um")
+    gvxr.rotateNode(simulation_name, -angle_set[i], 0, 0, 1)
 
+gvxr.setDetectorPosition(0, gvxr.getDetectorPosition("um")[1], 0, "um")
+islicer(xray_image_set)
+# %%
+# Apply Beer-Lambert law
+np.log(xray_image_set, out=xray_image_set)
+np.negative(xray_image_set,out=xray_image_set)
+xray_image_set = xray_image_set.astype(np.float32)
 islicer(xray_image_set)
 # %% Save the simulated projections as tiff files
-# prefix = 
+
 sub_folder = simulation_name + "_simulation_" + str(len(xray_image_set))
 
 if not os.path.exists(os.path.join(output_path, sub_folder)):
@@ -160,7 +170,7 @@ if not os.path.exists(os.path.join(output_path, sub_folder)):
 for i, img in enumerate(xray_image_set):
     fname = os.path.join(output_path, sub_folder, simulation_name + "_simulation_" + str(i).zfill(4) + ".tif")
     imwrite(fname, img.astype(np.float32), photometric='minisblack')
-
+# save npy files
 np.save(os.path.join(output_path, simulation_name + "_simulation_" + str(len(xray_image_set)) + '_projections.npy'),
         xray_image_set)
 
@@ -168,7 +178,10 @@ np.save(os.path.join(output_path, simulation_name + "_simulation_" + str(len(xra
 np.save(os.path.join(output_path, simulation_name + "_delta_x_" + str(len(xray_image_set)) + ".npy"), delta_x)
 np.save(os.path.join(output_path, simulation_name + "_delta_y_" + str(len(xray_image_set)) + ".npy"), delta_y)
 
-# %% Save the current simulation states in a JSON file.
+# save the angles
+np.save(os.path.join(output_path, "sphere_phantom_angles_" + str(len(xray_image_set)) + ".npy"), angle_set)
+
+# Save the current simulation states in a JSON file.
 json_fname = os.path.join(output_path, simulation_name + "_simulation_" + str(len(xray_image_set)) + ".json") 
 # gvxr2json.saveJSON(json_fname) # This doesn't work when there is no STL file, just make the json file manually
 # with open(json_fname) as f:
@@ -210,28 +223,72 @@ with open(json_fname, "w") as file:
 # %% Read the simulated data with CIL
 from gvxrPython3.JSON2gVXRDataReader import *
 reader = JSON2gVXRDataReader(json_fname)
-data = reader.read()
+data_json = reader.read()
+print(data_json.dimension_labels)
 
-# Apply Beer-Lambert law
-data = TransmissionAbsorptionConverter()(data)
 
 # Check the data and geometry look right in CIL
-data.reorder('tigre')
-show_geometry(data.geometry)
-islicer(data)
+data_json.reorder('tigre')
+show_geometry(data_json.geometry)
+islicer(data_json)
 
-# %% Compare CIL recon FBP with astra
+# Compare CIL recon FBP with astra
+from cil.recon import FBP
+data_json.reorder('astra')
+fbp = FBP(data_json, backend='astra')
+recon_json = fbp.run()
+recon_json.apply_circular_mask(1)
+show2D(recon_json)
+
+# %% Scroll through the reconstruction
+islicer(recon_json)
+
+# %%
+xray_image_set = np.load(os.path.join(output_path, simulation_name + "_simulation_" + str(len(xray_image_set)) + '_projections.npy'))
+delta_x = np.load(os.path.join(output_path, simulation_name + "_delta_x_" + str(len(xray_image_set)) + ".npy"))
+delta_y = np.load(os.path.join(output_path, simulation_name + "_delta_y_" + str(len(xray_image_set)) + ".npy"))
+angle_set = np.load(os.path.join(output_path, "sphere_phantom_angles_" + str(len(xray_image_set)) + ".npy"))
+# %%
+def apply_x_shifts(projections, trans):
+    for th in range(projections.shape[0]):
+        shift = int(trans[th])
+        projections[th,:,:] = np.roll(projections[th,:,:], shift, axis=1)
+    return projections
+def apply_y_shifts(projections, trans):
+    for th in range(projections.shape[0]):
+        shift = int(trans[th])
+        projections[th,:,:] = np.roll(projections[th,:,:], shift, axis=0)
+    return projections
+
+xray_image_set = apply_x_shifts(xray_image_set, 0.5*delta_x)
+xray_image_set  = apply_y_shifts(xray_image_set , 0.5*delta_y)
+islicer(xray_image_set)
+
+# %%
+from cil.framework import AcquisitionGeometry, AcquisitionData
+ag = AcquisitionGeometry.create_Parallel3D().set_angles(angle_set).set_panel([300,300])
+data = AcquisitionData(xray_image_set, geometry=ag)
+# %%
+from cil.recon import FBP
+data.reorder('astra')
+
+fbp = FBP(data, backend='astra')
+recon = fbp.run()
+recon.apply_circular_mask(1)
+show2D([recon])
+# %%
+islicer(recon)
+# %%
+from gvxrPython3.JSON2gVXRDataReader import *
+reader = JSON2gVXRDataReader(json_fname)
+data = reader.read()
+data.array = apply_x_shifts(data.array, -delta_x)
+data.array = apply_y_shifts(data.array, delta_y)
+islicer(data)
+# %%
 from cil.recon import FBP
 data.reorder('astra')
 fbp = FBP(data, backend='astra')
 recon = fbp.run()
 recon.apply_circular_mask(1)
 show2D(recon)
-
-# %% Scroll through the reconstruction
-islicer(recon)
-# %%
-from cil.io import NEXUSDataWriter
-writer = NEXUSDataWriter(recon, os.path.join(output_path, simulation_name + "_recon") )
-writer.write()
-# %%
