@@ -1,0 +1,17 @@
+name: ptycho-sim
+channels:
+    - conda-forge
+    - https://software.repos.intel.com/python/conda
+    - ccpi
+dependencies:
+    - ipywidgets
+    - ipykernel
+    - matplotlib
+    - scipy
+    - numpy
+    - python=3.11
+    - cil=24.3.0
+    - astra-toolbox=*=cuda*
+    - pip
+    - pip:
+        - gvxr>=2.0.10

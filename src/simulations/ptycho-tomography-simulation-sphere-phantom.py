@@ -1,0 +1,294 @@
+# %%
+import os
+import numpy as np 
+import matplotlib
+import matplotlib.pyplot as plt
+import json
+from tifffile import imwrite
+from gvxrPython3 import gvxr
+from gvxrPython3 import gvxr2json
+from gvxrPython3.JSON2gVXRDataReader import *
+from cil.recon import FBP
+from cil.plugins.astra.processors import FBP as astra_FBP
+from cil.processors import TransmissionAbsorptionConverter
+from cil.utilities.display import show_geometry, show2D
+from cil.utilities.jupyter import islicer
+from scipy.spatial.transform import Rotation as R
+
+from cil.io import TIFFWriter
+
+# %%
+generate_noise = False
+simulation_name = "sphere_phantom_nojitter"
+
+# change to pixels
+output_path = "output_data"
+if not os.path.exists(output_path):
+    os.makedirs(output_path)
+
+# %% Create the experiment geometry
+# Set up the source
+print("Create an OpenGL context")
+gvxr.createOpenGLContext()
+print("Set up the beam")
+gvxr.setSourcePosition(0.0,  -1.0, 0.0, "mm")
+energy = 150
+energy_units = "keV"
+photons = 16000
+gvxr.setMonoChromatic(energy, energy_units, photons)
+gvxr.useParallelBeam()
+
+# Set up the detector
+print("Set up the detector")
+gvxr.setDetectorPosition(0.0, 1.0, 0.0, "mm")
+gvxr.setDetectorUpVector(0, 0, 1)
+gvxr.setDetectorNumberOfPixels(300, 300)
+gvxr.setDetectorPixelSize(1, 1, "um")
+
+# %% Get a sample
+gvxr.removePolygonMeshesFromSceneGraph()
+large_sphere_radius = 100
+gvxr.makeSphere(simulation_name, 100, 100, large_sphere_radius, "um")
+
+x = [-60, 30, 20]
+y = [-40, -30, 60]
+z = [0, -5, 0]
+sphere_radii = [20, 40, 30]
+for i in np.arange(len(x)):
+    sphere_name = f"sphere_{i}"
+    gvxr.makeSphere(sphere_name, 50, 50, sphere_radii[i], "um")
+    gvxr.translateNode(sphere_name, x[i], z[i], y[i], "um")
+    gvxr.applyCurrentLocalTransformation(sphere_name)
+    
+    gvxr.addMesh(simulation_name, sphere_name)
+
+gvxr.addPolygonMeshAsInnerSurface(simulation_name)
+gvxr.setCompound(simulation_name, "SiO2")
+gvxr.setDensity(simulation_name, 2.2,"g.cm-3")
+
+# Compute an X-ray image
+print("Compute an X-ray image")
+gvxr.displayScene()
+x_ray_image = np.array(gvxr.computeXRayImage()) / gvxr.getTotalEnergyWithDetectorResponse()
+show2D(x_ray_image)
+# %% Generate the noise
+start = 0
+stop = 180
+step = 0.5
+include_last_angle = True
+
+angle_set = np.linspace(start, stop, num=int((stop-start) / step) + 1, endpoint=True)
+xray_image_set = np.zeros((len(angle_set), gvxr.getDetectorNumberOfPixels()[1], gvxr.getDetectorNumberOfPixels()[0]))
+delta_x = np.zeros(len(angle_set))
+delta_y = np.zeros(len(angle_set))
+if generate_noise:
+
+    # random jitter
+    rng = np.random.default_rng()
+    max_jitter_x = 0.005*gvxr.getDetectorSize("um")[0] # 0.5% of sample size movement projection to projection
+    max_jitter_y = 0.005*gvxr.getDetectorSize("um")[1] # 0.5% of sample size movement projection to projection
+    damping = 0.02  # how strongly the system corrects random walk
+    random_walk_x = 0.0
+    random_walk_y = 0.0
+    
+    # thermal expansion
+    delta_T = 2 # change in temperature
+    alpha = 10 # coefficient of linear thermal expansion (~Al)
+    expansion = 1*alpha*(delta_T) # total length change
+    t_expansion = 300 # period over which the thermal expansion occurs (projections)
+    delta_L = (1-expansion)/t_expansion # length change per projection
+    thermal_x = 0.0
+    thermal_y = 0.0
+
+    # oscillation
+    oscillation_frequency = 0.9
+    oscillation_amplitude_x = 0.005*gvxr.getDetectorSize("um")[0] # 0.5% of sample size movement projection to projection
+    oscillation_amplitude_y = 0.005*gvxr.getDetectorSize("um")[1] # 0.5% of sample size movement projection to projection
+    osc_x = 0
+    osc_y = 0
+    
+    for i in np.arange(len(angle_set)):
+        jitter_step_x = rng.uniform(-max_jitter_x , max_jitter_x)
+        jitter_step_y = rng.uniform(-max_jitter_y , max_jitter_y)
+        # Damped random walk
+        random_walk_x += jitter_step_x - damping * random_walk_x
+        random_walk_y += jitter_step_y - damping * random_walk_y
+
+        if i < t_expansion:
+            thermal_x += delta_L
+            thermal_y += delta_L
+
+        osc_x += oscillation_amplitude_x * (0.7 * np.sin(oscillation_frequency * i) + 0.3 * np.cos(0.5*oscillation_frequency * i))
+        osc_y += oscillation_amplitude_y * (0.7 * np.sin(oscillation_frequency * i) + 0.3 * np.cos(0.5*oscillation_frequency * i))
+
+        osc_x += oscillation_amplitude_x * np.sin(oscillation_frequency * i)
+        osc_y += oscillation_amplitude_y * np.sin(oscillation_frequency * i)
+
+        delta_x[i] = int(thermal_x + random_walk_x + osc_x) # int for now
+        delta_y[i] = int(thermal_y + random_walk_y + osc_y) # int for now
+
+    jitter_real_x = np.load('delta_x_1D_fullNth_1it.npy')
+    jitter_real_y = np.load('delta_y_1D_fullNth_1it.npy')
+    plt.plot(delta_x)
+    plt.plot(delta_y)
+    plt.plot(jitter_real_y)
+
+# %% Simulate a CT scan
+for i in np.arange(len(angle_set)):
+    # Rotate
+    gvxr.rotateNode(simulation_name, angle_set[i], 0, 0, 1)
+
+    # Shift
+    print(delta_x[i], delta_y[i])
+    # gvxr.translateNode(simulation_name, delta_x[i], 0, delta_y[i], "um")
+    gvxr.setDetectorPosition(int(0), gvxr.getDetectorPosition("um")[1], int(0), "um")
+    # Compute xray image
+    xray_image = np.array(gvxr.computeXRayImage(), dtype=np.single)/ gvxr.getTotalEnergyWithDetectorResponse()
+    xray_image_set[i] = xray_image
+    
+    # print(gvxr.rota)
+    # Restore the initial state
+    # gvxr.translateNode(simulation_name, -delta_x[i], 0, -delta_y[i], "um")
+    # gvxr.setDetectorPosition(-delta_x[i], gvxr.getDetectorPosition("um")[1], -delta_y[i], "um")
+    gvxr.rotateNode(simulation_name, -angle_set[i], 0, 0, 1)
+
+gvxr.setDetectorPosition(0, gvxr.getDetectorPosition("um")[1], 0, "um")
+islicer(xray_image_set)
+# %%
+# Apply Beer-Lambert law
+np.log(xray_image_set, out=xray_image_set)
+np.negative(xray_image_set,out=xray_image_set)
+xray_image_set = xray_image_set.astype(np.float32)
+islicer(xray_image_set)
+# %% Save the simulated projections as tiff files
+
+sub_folder = simulation_name + "_simulation_" + str(len(xray_image_set))
+
+if not os.path.exists(os.path.join(output_path, sub_folder)):
+    os.makedirs(os.path.join(output_path, sub_folder))
+
+for i, img in enumerate(xray_image_set):
+    fname = os.path.join(output_path, sub_folder, simulation_name + "_simulation_" + str(i).zfill(4) + ".tif")
+    imwrite(fname, img.astype(np.float32), photometric='minisblack')
+# save npy files
+np.save(os.path.join(output_path, simulation_name + "_simulation_" + str(len(xray_image_set)) + '_projections.npy'),
+        xray_image_set)
+
+# save the jitter arrays
+np.save(os.path.join(output_path, simulation_name + "_delta_x_" + str(len(xray_image_set)) + ".npy"), delta_x)
+np.save(os.path.join(output_path, simulation_name + "_delta_y_" + str(len(xray_image_set)) + ".npy"), delta_y)
+
+# save the angles
+np.save(os.path.join(output_path, "sphere_phantom_angles_" + str(len(xray_image_set)) + ".npy"), angle_set)
+
+# Save the current simulation states in a JSON file.
+json_fname = os.path.join(output_path, simulation_name + "_simulation_" + str(len(xray_image_set)) + ".json") 
+# gvxr2json.saveJSON(json_fname) # This doesn't work when there is no STL file, just make the json file manually
+# with open(json_fname) as f:
+#     params = json.load(f)
+params = {}
+params["Window size"] = list(gvxr.getWindowSize()),
+params["Source"] = {
+    "Position": list(gvxr.getSourcePosition("mm")) + ["mm"],
+    "Shape" : "PARALLEL",
+    "Beam":list({
+        "Energy": energy,
+        "PhotonCount": photons,
+        "Unit": energy_units
+    })
+}
+params["Detector"] = {
+    "Position" : list(gvxr.getDetectorPosition("mm")) + ["mm"],
+    "UpVector" : list(gvxr.getDetectorUpVector()),
+    "RightVector" : list(gvxr.getDetectorRightVector()),
+    "NumberOfPixels" : list(gvxr.getDetectorNumberOfPixels()),
+    "Size" : list(gvxr.getDetectorSize("mm")) + ["mm"]
+
+}
+params["Scan"] = {
+    "OutFolder": sub_folder,
+    "NumberOfProjections": len(xray_image_set),
+    "AngleStep": step,
+    "StartAngle": start,
+    "FinalAngle": stop,
+    "IncludeLastAngle": include_last_angle,  
+    "Flat-Field Correction": False,
+    "CentreOfRotation": list(gvxr.getCentreOfRotationPositionCT("mm")) + ["mm"],
+    "RotationAxis": list(gvxr.getDetectorUpVector())
+}
+print(params)
+with open(json_fname, "w") as file:
+    json.dump(params, file, indent=4)
+
+# %% Read the simulated data with CIL
+from gvxrPython3.JSON2gVXRDataReader import *
+reader = JSON2gVXRDataReader(json_fname)
+data_json = reader.read()
+print(data_json.dimension_labels)
+
+
+# Check the data and geometry look right in CIL
+data_json.reorder('tigre')
+show_geometry(data_json.geometry)
+islicer(data_json)
+
+# Compare CIL recon FBP with astra
+from cil.recon import FBP
+data_json.reorder('astra')
+fbp = FBP(data_json, backend='astra')
+recon_json = fbp.run()
+recon_json.apply_circular_mask(1)
+show2D(recon_json)
+
+# %% Scroll through the reconstruction
+islicer(recon_json)
+
+# %%
+xray_image_set = np.load(os.path.join(output_path, simulation_name + "_simulation_" + str(len(xray_image_set)) + '_projections.npy'))
+delta_x = np.load(os.path.join(output_path, simulation_name + "_delta_x_" + str(len(xray_image_set)) + ".npy"))
+delta_y = np.load(os.path.join(output_path, simulation_name + "_delta_y_" + str(len(xray_image_set)) + ".npy"))
+angle_set = np.load(os.path.join(output_path, "sphere_phantom_angles_" + str(len(xray_image_set)) + ".npy"))
+# %%
+def apply_x_shifts(projections, trans):
+    for th in range(projections.shape[0]):
+        shift = int(trans[th])
+        projections[th,:,:] = np.roll(projections[th,:,:], shift, axis=1)
+    return projections
+def apply_y_shifts(projections, trans):
+    for th in range(projections.shape[0]):
+        shift = int(trans[th])
+        projections[th,:,:] = np.roll(projections[th,:,:], shift, axis=0)
+    return projections
+
+xray_image_set = apply_x_shifts(xray_image_set, 0.5*delta_x)
+xray_image_set  = apply_y_shifts(xray_image_set , 0.5*delta_y)
+islicer(xray_image_set)
+
+# %%
+from cil.framework import AcquisitionGeometry, AcquisitionData
+ag = AcquisitionGeometry.create_Parallel3D().set_angles(angle_set).set_panel([300,300])
+data = AcquisitionData(xray_image_set, geometry=ag)
+# %%
+from cil.recon import FBP
+data.reorder('astra')
+
+fbp = FBP(data, backend='astra')
+recon = fbp.run()
+recon.apply_circular_mask(1)
+show2D([recon])
+# %%
+islicer(recon)
+# %%
+from gvxrPython3.JSON2gVXRDataReader import *
+reader = JSON2gVXRDataReader(json_fname)
+data = reader.read()
+data.array = apply_x_shifts(data.array, -delta_x)
+data.array = apply_y_shifts(data.array, delta_y)
+islicer(data)
+# %%
+from cil.recon import FBP
+data.reorder('astra')
+fbp = FBP(data, backend='astra')
+recon = fbp.run()
+recon.apply_circular_mask(1)
+show2D(recon)
