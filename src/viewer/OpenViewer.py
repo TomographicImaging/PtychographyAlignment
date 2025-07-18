@@ -3,17 +3,8 @@ from ccpi.viewer.utils.conversion  import Converter
 
 class OpenViewer():
     def __init__(self, data):
+        """Imports the data in a vtk viewer."""
         v = viewer2D()
-        # Create an image object
         data_vtk = Converter.numpy2vtkImage(data)
         v.setInputData(data_vtk)
         v.startRenderLoop()
-
-def test_open_viewer():
-    from io_module.Imports import ImportData
-    ptytomofile = 'C:/Users/zvm34551/Coding_environment/DATA/Ptychography/pty_tomo_NX.h5'
-    data = ImportData(ptytomofile)
-    projections_raw= data.get_projections_raw()
-    OpenViewer(projections_raw)
-
-#test_open_viewer()

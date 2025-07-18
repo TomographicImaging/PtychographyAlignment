@@ -3,7 +3,7 @@ dependencies:
   - tomopy
   - scikit-image=0.18
   - python=3.10
-  - ccpi:ccpi-viewer=24.1.0
+  - ccpi:ccpi-viewer=24.1.0 # if you want to use the CILviewer
   - joblib # for parallel computation
   - hdf5plugin #for nxs import
   - pytest # to run the tests locally
