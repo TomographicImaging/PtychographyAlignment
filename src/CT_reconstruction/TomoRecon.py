@@ -1,6 +1,9 @@
 import utilities.utils_tomo as utils 
-# Reconstructions function. For algorithms can use GRIDREC, SIRT, or FBP. It returns a 3D stack. 
+
 def get_volume(projections, angles, centre=None, pad=0, algorithm='GRIDREC', iterations=1):
+    """
+    Reconstructions function. For algorithms can use GRIDREC, SIRT, or FBP. It returns a 3D stack. 
+    """
     projections = utils.pad(projections, (pad,0))
     if centre ==None:
         centre_of_rotation=utils.findCentre(projections)
@@ -11,8 +14,10 @@ def get_volume(projections, angles, centre=None, pad=0, algorithm='GRIDREC', ite
     utils.volume_zero_edges(volume, pad)
     return volume
 
-# This works by first reconstructing a 3D volume, then reprojecting it with ASTRA into projections
 def get_reprojections(projections, angles, centre, pad, algorithm='GRIDREC', iterations=1):
+    """
+    This works by first reconstructing a 3D volume, then reprojecting it with ASTRA into projections.
+    """
     volume = get_volume(projections, angles, centre, pad, algorithm=algorithm, iterations=iterations)
     if pad > 0:
         reprojections = utils.get_reprojections(volume, angles)[:,:,pad:-pad]

@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Tue May  6 16:35:23 2025
-
-@author: vdz11526
+@author: Oriol
 """
 
 import h5py
