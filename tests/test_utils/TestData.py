@@ -4,8 +4,7 @@ class TestData():
     def __init__(self):
         self.data = self.create_phase()
 
-    def wrap_phase_arg(self, phase):
-        return np.angle(np.exp(1j * phase), deg=False)
+
 
     def create_phase(self):# Define dimensions
         (nx, ny, nz) = (100, 200, 300)  # (slices, height, width)
@@ -16,7 +15,7 @@ class TestData():
         
         np.set_printoptions(suppress=True)
         #print(phase_stack)
-        phase_stack = self.wrap_phase_arg(phase_stack)
+        phase_stack = wrap_phase_arg(phase_stack)
         #print(phase_stack)
         return phase_stack
     
@@ -39,3 +38,5 @@ class TestData():
 
         plt.show()
     
+def wrap_phase_arg(phase):
+    return np.angle(np.exp(1j * phase), deg=False)

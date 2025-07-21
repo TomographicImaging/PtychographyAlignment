@@ -14,8 +14,8 @@ def test_unwrap_pollen_Volpe_data():
 def test_unwrap_TestData():
     from test_utils.TestData import TestData
     data = TestData().data
-    data1 = data
-    data2 = data
+    data1 = data.copy()
+    data2 = data.copy()
     numpy.set_printoptions(suppress=True)
     OpenViewer(data)
     Unwrap(data, parallel=True)
@@ -25,3 +25,21 @@ def test_unwrap_TestData():
     Unwrap(data2, parallel=False, sliced = False)
     OpenViewer(data2)
 
+def test_parallel_jobs():
+    from joblib import Parallel, delayed
+    a = numpy.array([[0,0,0],[10,10,10],[20,20,20]])
+    b = numpy.array([a.copy(), a.copy(), a.copy()])
+    b_expected = numpy.array([2*a, 2*a, 2*a])
+
+    def func(arr2d):
+        arr2d += arr2d
+
+    Parallel(n_jobs=-1, prefer="threads")(delayed(func)(arr) for arr in b)
+    assert numpy.array_equal(b, b_expected)
+
+def test_wrap_phase_arg():
+    from test_utils.TestData import wrap_phase_arg
+    phases = numpy.array([0, numpy.pi, -numpy.pi, 2*numpy.pi, -2*numpy.pi, numpy.pi/2, -numpy.pi/2])
+    wrapped = wrap_phase_arg(phases)
+    print("Original:", phases)
+    print("Wrapped:", wrapped)
