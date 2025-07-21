@@ -31,7 +31,7 @@ class Unwrap():
                 for i in range(phase_stack.shape[0]):
                     phase_stack[i,...] = unwrap.unwrap_phase(phase_stack[i,...])
             else:
-                phase_stack = unwrap.unwrap_phase(phase_stack)
+                phase_stack[:] = unwrap.unwrap_phase(phase_stack)
             
 def unwrap_slice(slice_data):
     """

@@ -1,30 +1,33 @@
 from utilities.Unwrap import Unwrap
-from viewer.OpenViewer import OpenViewer
+from helpers.might_OpenViewer import might_OpenViewer
 import numpy 
+import pytest
+
+
 
 @pytest.mark.skip(reason="Temporary skip during development, it takes too long.")
-def test_unwrap_pollen_Volpe_data():
+def test_unwrap_pollen_Volpe_data(request):
     from io_module.Imports import ImportData
     from config.paths import pollen_Volpe_filepath, pollen_Volpe_data_key, pollen_Volpe_angle_key
     data = ImportData(pollen_Volpe_filepath, data_key=pollen_Volpe_data_key, angle_key = pollen_Volpe_angle_key)
     projections_raw= data.get_projections_raw()
-    OpenViewer(projections_raw)
+    might_OpenViewer(request, projections_raw)
     Unwrap(projections_raw)
-    OpenViewer(projections_raw)
+    might_OpenViewer(request, projections_raw)
 
-def test_unwrap_TestData():
+def test_unwrap_TestData(request):
     from helpers.TestData import TestData
     data = TestData().data
     data1 = data.copy()
     data2 = data.copy()
     numpy.set_printoptions(suppress=True)
-    OpenViewer(data)
+    might_OpenViewer(request, data)
     Unwrap(data, parallel=True)
-    OpenViewer(data)
+    might_OpenViewer(request, data)
     Unwrap(data1, parallel=False, sliced = True)
-    OpenViewer(data1)
+    might_OpenViewer(request, data1)
     Unwrap(data2, parallel=False, sliced = False)
-    OpenViewer(data2)
+    might_OpenViewer(request, data2)
 
 def test_parallel_jobs():
     from joblib import Parallel, delayed
