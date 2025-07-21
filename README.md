@@ -24,3 +24,6 @@ To install locally allowing edits:
 
 To run tests:
 ```pytest```
+
+To run tests with the viewer:
+```pytest --viewer```
