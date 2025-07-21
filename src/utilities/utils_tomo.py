@@ -31,7 +31,7 @@ from matplotlib import pyplot as plt
 try:
     from skimage import data
     from skimage.registration import phase_cross_correlation as register_translation
-    from skimage.feature.register_translation import _upsampled_dft
+    #from skimage.feature.register_translation import _upsampled_dft
     from scipy.ndimage import fourier_shift
 except ImportError as e:
     print(e)

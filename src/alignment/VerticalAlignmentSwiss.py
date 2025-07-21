@@ -30,7 +30,7 @@ class VerticalAlignmentSwiss():
         self.test_shift_psi_by_array(psi)
         self.test_compute_error(psi)
         self.delta_y_1D_final = self.align_projections(psi, max_shift, iterations)
-        psi_final = self.shift_psi_by_array(psi, self.delta_y_1D_final)[0]
+        psi_final = shift_psi_by_array(psi, self.delta_y_1D_final)[0]
         self.plot_array(np.transpose(psi_final), f"psi_theta({self.align}) shifted",  'projection #', self.align)
 
     def plot_array(self,arr,title,x_label,y_label):# Create a plot
@@ -144,14 +144,6 @@ class VerticalAlignmentSwiss():
         psi = M_y.T - f_legendre  # shape: (H, N)
         self.plot_array(np.transpose(psi.T), f"psi_theta({self.align})",  'projection #', self.align)
         return psi.T  # shape back to (N, H)
-    
-    def shift_psi_by_array(self, psi, shifts_1D):
-        "shift psi by 1d array of y shifts and calculate mean for this, over angle"
-        Nth, Ny = psi.shape  # Get dimensions
-        # Compute the average projection over all θ, using the current shifts
-        shifted_psi = np.array([np.roll(psi[theta, :], -shifts_1D[theta]) for theta in range(Nth)])
-        avg_psi = np.mean(shifted_psi, axis=0)  # Compute mean along θ
-        return shifted_psi, avg_psi
         
     def compute_error(self, psi, shifts_1D, theta_index, new_shift):
         """
@@ -171,10 +163,10 @@ class VerticalAlignmentSwiss():
         shifts_new_1D = shifts_1D.copy()
         shifts_new_1D[theta_index] = new_shift
 
-        avg_psi = self.shift_psi_by_array(psi, shifts_1D)[1]
+        avg_psi = shift_psi_by_array(psi, shifts_1D)[1]
 
         # Apply new test shift to the current projection
-        new_psi_matrix = self.shift_psi_by_array(psi, shifts_new_1D)[0]
+        new_psi_matrix = shift_psi_by_array(psi, shifts_new_1D)[0]
         #print(new_psi_matrix)
         
 
@@ -189,13 +181,13 @@ class VerticalAlignmentSwiss():
     
     def compute_error_vectorised(self, psi, shifts_1D, theta_index, new_shift_array):
         "WIP"
-        avg_psi = self.shift_psi_by_array(psi, shifts_1D)[1]
+        avg_psi = shift_psi_by_array(psi, shifts_1D)[1]
 
         # Step 1: Build new shift array: same as old, except for theta_idx
         shifts_new_1D = shifts_1D.copy()
         shifts_new_1D[theta_index] = new_shift
         # Apply new test shift to the current projection
-        new_psi_matrix = self.shift_psi_by_array(psi, shifts_new_1D)[0]
+        new_psi_matrix = shift_psi_by_array(psi, shifts_new_1D)[0]
         error = np.sum((new_psi_matrix - avg_psi) ** 2)
         #print(new_psi_matrix)
     
@@ -236,7 +228,7 @@ class VerticalAlignmentSwiss():
         for theta in range(Nth//2):  # Process each projection separately
             delta_y_1D[theta] = 200
         # Compute the average projection over all θ, using the current shifts
-        shifted_projections, avg = self.shift_psi_by_array(psi, delta_y_1D)
+        shifted_projections, avg = shift_psi_by_array(psi, delta_y_1D)
         #print("avg is ",avg)
         self.plot_1D(avg,"Average over the projection angle theta",self.align, "Average")
         self.plot_array(np.transpose(shifted_projections), f"psi_theta({self.align}) shifted",  'projection #', self.align)
@@ -279,8 +271,13 @@ def plot():# Create a plot
 
     plt.show()
 
-
-
+def shift_psi_by_array(psi, shifts_1D):
+    "shift psi by 1d array of y shifts and calculate mean for this, over angle"
+    Nth, Ny = psi.shape  # Get dimensions
+    # Compute the average projection over all θ, using the current shifts
+    shifted_psi = np.array([np.roll(psi[theta, :], -shifts_1D[theta]) for theta in range(Nth)])
+    avg_psi = np.mean(shifted_psi, axis=0)  # Compute mean along θ
+    return shifted_psi, avg_psi
 
 def test_alignment():
     va= VerticalAlignmentSwiss(projections_reduced)
