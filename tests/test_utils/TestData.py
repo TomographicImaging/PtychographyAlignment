@@ -1,5 +1,4 @@
 import numpy as np
-from viewer.OpenViewer import OpenViewer
 
 class TestData():
     def __init__(self):
@@ -39,8 +38,4 @@ class TestData():
         ax.set_ylabel("Y")
 
         plt.show()
-
-
-
-#wrapped_phase = TestData().data
     
