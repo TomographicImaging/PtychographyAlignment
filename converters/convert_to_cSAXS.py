@@ -16,13 +16,15 @@ import re
 
 tic = time.time()
 
-directory = r"c:\Users\zvm34551\Coding_environment\DATA\Ptychography\Experimental\NiTi_Zifan_396963"
-phase_filename = directory + r'\tomo_ptycho_396963_0_699_phase.nxs'
-mod_filename = directory + r'\tomo_ptycho_396963_0_699_modulus.nxs'
+from src.config.user_paths import DATA_ROOT
+directory = DATA_ROOT / "Experimental" / "NiTi_Zifan_396963"
+phase_filename = directory / "tomo_ptycho_396963_0_699_phase.nxs"
+mod_filename = directory / "tomo_ptycho_396963_0_699_modulus.nxs"
 filename = 'NiTiZifan_396963.mat'
 
-data_key = '/entry/data/data'
-angle_key = '/entry/data/rotation_angle'
+from config.paths import NiTi_Zifan_data_key, NiTi_Zifan_angle_key
+data_key = NiTi_Zifan_data_key
+angle_key = NiTi_Zifan_angle_key
 
 with h5py.File(phase_filename,'r') as data_file: 
     data_shape = data_file[str(data_key)].shape
