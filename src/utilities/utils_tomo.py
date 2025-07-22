@@ -63,8 +63,10 @@ try:
 except ImportError:
     rank = 0
     nprocs = 1
-
+import utilities.utils_used as utils_used
+from CT_reconstruction import TomoRecon
 #import utils
+
 def check_crop(proj_dir, proj_centre = None, proj_shape = None):
     all_hdf_files = glob.glob(proj_dir + '*.hdf')
     all_hdf_files.sort()
@@ -217,52 +219,6 @@ def plot_volume(volume, x_slice = None, y_slice=None, z_slice=None):
     plt.subplot(1,3,3)
     plt.imshow(volume[:,:,z_slice], aspect='auto', cmap='gray')
     plt.show()
-
-def pad(projections_in, pad):
-    npad = ((0, 0), (pad[1], pad[1]), (pad[0], pad[0]))
-    projections_out = np.pad(projections_in, npad, mode='edge')
-    return projections_out
-
-# From ptyrex.core.toolbox
-def genCircularApertureMask(shape, r=0, cent=None):
-    """### Generate a circular aperture mask ###
-    out:
-        Array indicating which values fall inside of the aperture.
-    in:
-        shape - Shape of the source array, must be 2-dimensional.
-        r     - Radius of the masking disc. Defaults to 0.
-        cent  - None or the index on which to centre the disk.
-                If None, defaults to the centre of the soure array.
-    """
-
-    if len(shape) != 2:
-        raise ValueError('shape must be 2-dimensional')
-
-    if cent is not None and len(cent) != len(shape):
-        raise ValueError('shape and cannot have different dimensionality')
-
-    # By default, mask everything, but bail if the radius is negative
-    if r == 0:
-        return np.zeros(shape, dtype=complex)
-    elif r < 0:
-        raise ValueError("cannot create a mask with negative radius")
-
-    # If the aperture's center is undefined, default to the middle of the area
-    if cent is None:
-        cent = np.divide(np.array(shape) - 1, 2)
-
-    y = np.arange(shape[0]) - cent[0]
-    x = np.arange(shape[1]) - cent[1]
-
-    # Cast boolean array of everything inside the circle to complex
-    # so masking can happen by multiplication
-    xs, ys = np.meshgrid(x, y)
-    return np.array((xs ** 2 + ys ** 2 <= r ** 2), dtype=complex)
-
-def volume_zero_edges(volume, width):
-    ap = np.abs(genCircularApertureMask(np.shape(volume)[-2:], np.shape(volume)[-1]/2-width))
-    ap = ap[np.newaxis, ...]
-    np.multiply(volume, ap, out=volume)
     
 def reconstruct(projections,angles,algorithm,CoR,iterations=1):
     if algorithm=='FBP':
@@ -294,16 +250,6 @@ def apply_translations(projections, trans):
         M1 = np.float32([[1,0,-trans[1,i]],[0,1,-trans[0,i]]])
         shifted_projections[i,:,:] = cv2.warpAffine(projections[i,:,:],M1,(projections.shape[2],projections.shape[1]))
     return shifted_projections
-    
-def findCentre(projections):
-
-    firstImage = projections[0,:,:]
-    lastImage = projections[-1,:,:]
-    firstImageFlipped = np.fliplr(firstImage)
-    b,c=np.shape(firstImage)
-    shift, error, diffphase = register_translation(firstImageFlipped,lastImage, upsample_factor=100)
-    mycent=c/2-shift[1]/2
-    return mycent
 
 def normProjection(img,fromX,toX,fromY,toY,mean):
     newMean=np.mean(img[fromY:toY,fromX:toX])
@@ -456,17 +402,6 @@ def apply_y_shifts(projections, trans):
         projections[i,:,:] = np.roll(projections[i,:,:],shift, axis=0)
     return projections
 
-def tomo_recon(projections, angles, centre=None, algorithm='FBP', iterations=1):
-    if centre == None:
-        centre = findCentre(projections)
-    if algorithm=='FBP':
-        volume=FBP2D_ASTRA(projections, angles, centre)
-    elif algorithm=='SIRT':
-        volume=SIRT2D_ASTRA(projections, angles, centre, iterations)
-    elif algorithm=='GRIDREC':
-        volume = tomopy.recon(projections, angles, algorithm='gridrec', center=centre)
-    return volume
-
 def recon_align(projections, angles, algorithm = 'GRIDREC', iters = 1):
     projections_aligned = np.copy(projections)
     
@@ -476,10 +411,10 @@ def recon_align(projections, angles, algorithm = 'GRIDREC', iters = 1):
         print(n)
     #     alpha = 1#(float(n_iterations)-float(n))/n_iterations
     #     print alpha
-#         centre_of_rotation=utils.findCentre(projections[0,:,:],projections[-1,:,:])
+#         centre_of_rotation=utils_used.findCentre(projections[0,:,:],projections[-1,:,:])
         
         # Get volume
-        volume = tomo_recon(projections_aligned,angles,algorithm=algorithm,iterations=iters)
+        volume = TomoRecon.tomo_recon(projections_aligned,angles,algorithm=algorithm,iterations=iters)
         # Generate simulated projections
         reprojections = get_reprojections(volume, angles)
         # Get translations
@@ -501,8 +436,8 @@ def tomo_align(projections_in, angles, iters=1, subsample=1):
         alpha = 1#(float(n_iterations)-float(n))/n_iterations
     #     print alpha
 
-        centre_of_rotation=findCentre(projections)
-        volume = tomo_recon(projections, angles, centre=centre_of_rotation, algorithm='GRIDREC', iterations=1)
+        centre_of_rotation=utils_used.findCentre(projections)
+        volume = TomoRecon.tomo_recon(projections, angles, centre=centre_of_rotation, algorithm='GRIDREC', iterations=1)
         
         reprojections = get_reprojections(volume, angles)
         

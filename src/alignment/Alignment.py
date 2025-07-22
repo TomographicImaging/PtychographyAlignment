@@ -4,7 +4,7 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-import utilities.utils_tomo as utils
+import utilities.utils_used as utils_used
 from scipy.ndimage import gaussian_filter1d, measurements
 from scipy import optimize, signal
 from skimage.registration import phase_cross_correlation as register_translation
@@ -31,7 +31,7 @@ class BaseClassHorizontalAlignment():
         projections out : aligned projections
         """
         projections_out = np.zeros_like(projections_in)
-        projections_pad = np.copy(utils.pad(projections_in, (pad,0)))
+        projections_pad = np.copy(utils_used.pad(projections_in, (pad,0)))
         shifts = np.round(shifts).astype(np.int32)
 
         for i in range(projections_in.shape[0]):

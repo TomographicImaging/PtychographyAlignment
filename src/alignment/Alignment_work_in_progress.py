@@ -4,7 +4,6 @@
 
 import numpy as np
 import matplotlib.pyplot as plt
-import utilities.utils_tomo as utils
 from scipy.ndimage import  measurements
 from skimage.registration import phase_cross_correlation as register_translation
 
@@ -52,11 +51,6 @@ def get_reprojection_shifts(projections, reprojections, sub_sample=1, sigma=[4,2
     
 #     projections = blur(projections, sig_low) - blur(projections, sig_high)
 #     reprojections = blur(reprojections, sig_low) - blur(reprojections, sig_high)
-    
-#     utils.plot_3_projections(projections)
-#     utils.plot_sinogram(projections)
-#     utils.plot_3_projections(reprojections)
-#     utils.plot_sinogram(reprojections)
     
     for i in range(projections.shape[0]):
         image_a = projections[i]
