@@ -1,3 +1,9 @@
+# author: Oriol
+#
+# This file contains extra methods, the ones are used in our
+# repository have been moved out in other files.
+#-------------------------------------------------------------------
+
 import sys
 sys.path.append('/dls_sw/apps/tomopy/tomopy/src')
 
