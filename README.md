@@ -21,11 +21,10 @@ Note: the code is work in progress.
 ## Contributing
 Develop code locally by cloning the source code, creating a development environment and installing it.
 
-1. Install [miniconda](https:), then launch the `Miniconda Prompt`.
+1. Install [miniconda](https://repo.anaconda.com/miniconda/), then launch the `Miniconda Prompt`.
 
 2. Clone the `main` branch of `PtychographyAlignment` locally, and navigate into where it has been cloned:
 ```sh
-# Clone (download) source code
 git clone git@github.com:TomographicImaging/PtychographyAlignment.git
 cd PtychographyAlignment
 ```
@@ -33,7 +32,6 @@ cd PtychographyAlignment
 3. The [environment file](recipe/environment.yml) contains the dependencies needed to run the package.
 Create the conda environment using the following command:
 ```sh
-# Create environment
 conda env create -f recipe/environment.yml
 ```
 
@@ -54,7 +52,7 @@ Install the package locally allowing edits:
 pip install -e .
 ```
 
-6. Tests require the data "pollen_Volpe", please store this as specified in [`paths`](src\config\paths.py). To run tests:
+6. Tests require the data "pollen_Volpe", please store this as specified in [`paths`](src/config/paths.py). To run tests:
 ```sh
 pytest
 ```
