@@ -19,6 +19,9 @@ The [`tests`](tests) folder contains (some) tests of the methods developed, wher
 Note: the code is work in progress. 
 
 ## Contributing
+
+### Installation
+
 Develop code locally by cloning the source code, creating a development environment and installing it.
 
 1. Install [miniconda](https://repo.anaconda.com/miniconda/), then launch the `Miniconda Prompt`.
@@ -51,6 +54,7 @@ Install the package locally allowing edits:
 ```sh
 pip install -e .
 ```
+### Testing
 
 6. Tests require the data "pollen_Volpe", please store this as specified in [`paths`](src/config/paths.py). To run tests:
 ```sh
@@ -60,4 +64,43 @@ pytest
 Test can run with visualisation outputs from the ccpi-viewer:
 ```sh
 pytest --viewer
+```
+
+### Conventions
+
+For the docstrings, please use the [numpydoc convention](https://numpydoc.readthedocs.io/en/latest/format.html).
+
+Example:
+```
+"""
+Summarize the function in one line.
+
+Several sentences providing an extended description. Refer to
+variables using back-ticks, e.g. `var`.
+
+Parameters
+----------
+var1 : array_like
+    Array_like means all those objects -- lists, nested lists, etc. --
+    that can be converted to an array.  We can also refer to
+    variables like `var1`.
+var2 : int
+    The type above can either refer to an actual Python type
+    (e.g. ``int``), or describe the type of the variable in more
+    detail, e.g. ``(N,) ndarray`` or ``array_like``.
+*args : iterable
+    Other arguments.
+long_var_name : {'hi', 'ho'}, optional
+    Choices in brackets, default first when optional.
+
+Returns
+-------
+type
+    Explanation of anonymous return value of type ``type``.
+describe : type
+    Explanation of return value named `describe`.
+out : type
+    Explanation of `out`.
+type_without_description
+"""
 ```
