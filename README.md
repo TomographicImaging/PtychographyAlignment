@@ -8,6 +8,7 @@ The [`src`](src) contains the core code for the package. In particular, the code
 - [`io_module`](src/io_module/)
 - [`pipeline`](src/pipeline/)
 - [`quality_metrics`](src\quality_metrics)
+- [`recipe`] contains environment file
 - [`simulations`](src/simulations/) contains the tools to simulate tomographic projections with [gVXR](https://gvirtualxray.sourceforge.io/), where each projections is shifted along the "x" and "y" axes, i.e., in the transverse plane to the x-rays propagation direction.
 - [`utilities`](src/utilities/)
 - [`validating_methods`](src/validating_methods/)
@@ -18,13 +19,47 @@ The [`tests`](tests) folder contains (some) tests of the methods developed, wher
 Note: the code is work in progress. 
 
 ## Contributing
-The [environment file](environment.yml) contains the dependencies needed to run the package.
+Develop code locally by cloning the source code, creating a development environment and installing it.
 
-To install locally allowing edits:
-```pip install -e .```
+1. Install [miniconda](https:), then launch the `Miniconda Prompt`.
 
-To run tests:
-```pytest```
+2. Clone the `main` branch of `PtychographyAlignment` locally, and navigate into where it has been cloned:
+```sh
+# Clone (download) source code
+git clone git@github.com:TomographicImaging/PtychographyAlignment.git
+cd PtychographyAlignment
+```
 
-To run tests with the viewer:
-```pytest --viewer```
+3. The [environment file](recipe/environment.yml) contains the dependencies needed to run the package.
+Create the conda environment using the following command:
+```sh
+# Create environment
+conda env create -f recipe/environment.yml
+```
+
+4. Activate the environment:
+```sh
+conda activate ptychotomo_env
+```
+
+5. Install the package:
+```sh
+pip install .
+```
+
+or
+
+Install the package locally allowing edits:
+```sh
+pip install -e .
+```
+
+6. Tests require the data "pollen_Volpe", please store this as specified in [`paths`](src\config\paths.py). To run tests:
+```sh
+pytest
+```
+
+Test can run with visualisation outputs from the ccpi-viewer:
+```sh
+pytest --viewer
+```

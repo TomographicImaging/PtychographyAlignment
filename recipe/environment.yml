@@ -1,0 +1,16 @@
+name: ptychotomo_env
+channels:
+  - conda-forge
+  - ccpi  # for ccpi-viewer
+
+dependencies:
+  - python=3.10               # for compatibility with other packages
+  - numpy=1.26
+  - scikit-image=0.18         # fix due to deprecated method names
+  - tomopy
+  - ipykernel                 # required to run notebooks
+  - ccpi::ccpi-viewer=24.1.0  # note the proper 'ccpi::' namespace syntax
+  - joblib                    # for parallel computation
+  - hdf5plugin                # for nxs import
+  - pytest                    # to run the tests locally
+  - pip
