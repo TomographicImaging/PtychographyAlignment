@@ -7,8 +7,8 @@ The [`src`](src) contains the core code for the package. In particular, the code
 - [`CT reconstructions`](src/CT_reconstruction/) tomographic reconstructions methods
 - [`io_module`](src/io_module/)
 - [`pipeline`](src/pipeline/)
-- [`quality_metrics`](src\quality_metrics)
-- [`recipe`] contains environment file
+- [`quality_metrics`](src/quality_metrics)
+- [`recipe`](recipe) contains environment file
 - [`simulations`](src/simulations/) contains the tools to simulate tomographic projections with [gVXR](https://gvirtualxray.sourceforge.io/), where each projections is shifted along the "x" and "y" axes, i.e., in the transverse plane to the x-rays propagation direction.
 - [`utilities`](src/utilities/)
 - [`validating_methods`](src/validating_methods/)
