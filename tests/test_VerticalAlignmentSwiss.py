@@ -18,7 +18,7 @@ def create_psi():
 projections = create_data()
 vas = VerticalAlignmentSwiss(projections, max_shift = 50, iterations = 1, swap_xy = False, plotting = True)
 
-def test_shift_psi_by_array_and_mean():
+def _test_shift_psi_by_array_and_mean():
     psi = create_psi()
     psi_shifted, mean = vas.shift_psi_by_array_and_mean(psi, np.array([2,0,1]))
     psi_shfted_expected = np.array([[2, 0, 1], [10, 11,12], [101, 102, 100]])
@@ -26,7 +26,7 @@ def test_shift_psi_by_array_and_mean():
     assert np.array_equal(psi_shifted, psi_shfted_expected)
     assert np.allclose(mean, mean_expected)
 
-def test_shift_psi_by_array_and_mean2(self, psi):
+def _test_shift_psi_by_array_and_mean2(self, psi):
     Nth, Ny = psi.shape
     delta_y_1D = np.zeros(Nth, dtype=int)  # Initialize shifts to zero
     for theta in range(Nth//2):  # Process each projection separately
@@ -36,13 +36,13 @@ def test_shift_psi_by_array_and_mean2(self, psi):
     self.plot_1D(mean,"Mean over the projection angle theta",self.align, "mean")
     self.plot_array(np.transpose(shifted_projections), f"psi_theta({self.align}) shifted",  'projection #', self.align)
 
-def test_compute_error(self, psi):
+def _test_compute_error(self, psi):
     Nth, Ny = psi.shape
     delta_y_1D = np.zeros(Nth, dtype=int)  # Initialize shifts to zero
     error = self.compute_error(psi, delta_y_1D, 0, 1) 
     print("error is ", error)
 
-def test_alignment():
+def _test_alignment():
     va= VerticalAlignmentSwiss(projections)
     va.run_alignment()
     # if va.swap_xy ==True:
@@ -50,7 +50,7 @@ def test_alignment():
     # else:
     #     np.save(r"src\delta_y_1D.npy", va.delta_y_1D_final)
 
-test_alignment()
-test_shift_psi_by_array_and_mean()
+_test_alignment()
+_test_shift_psi_by_array_and_mean()
 #test_shift_psi_by_array_and_mean(psi)
 #test_compute_error(psi)
