@@ -1,10 +1,10 @@
 import pytest
 
 def test_open_viewer(request):
-    """Tests that the viewer works correctly. It is skipped if --viewer not set."""
+    """Tests that the viewer works correctly. It is skipped if --view not set."""
     
-    if not request.config.getoption("--viewer"):
-        pytest.skip("Skipping test_open_viewer because --viewer was not set.")
+    if not request.config.getoption("--view"):
+        pytest.skip("Skipping test_open_viewer because --view was not set.")
     
     from viewer.OpenViewer import OpenViewer
     from io_module.Imports import ImportData

@@ -61,9 +61,9 @@ pip install -e .
 pytest
 ```
 
-Test can run with visualisation outputs from the ccpi-viewer:
+Test can run with visualisation outputs from the ccpi-viewer and matplotlib:
 ```sh
-pytest --viewer
+pytest --view
 ```
 
 ### Conventions

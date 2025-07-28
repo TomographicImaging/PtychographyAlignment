@@ -2,6 +2,7 @@
 # This code was generated from the paper "Phase tomography from x-ray coherent diffractive imaging projections"
 # DOI: 10.1364/OE.19.021345 (https://opg.optica.org/oe/fulltext.cfm?uri=oe-19-22-21345&id=223191) 
 # The methods are work in progress. They were partially tested on the pollen-Volpe data and the simulated gVXR data.
+# The error minimiser method in particular needs improveement.
 #-------------------------------------------------------------------------------------------------------------------------
 
 import numpy as np
@@ -16,7 +17,7 @@ import matplotlib.pyplot as plt
 
 
 class VerticalAlignmentSwiss():
-    def __init__(self, projections, max_shift = 50, iterations = 1, swap_xy = False, plotting = False):
+    def __init__(self, projections, max_shift = 50, iterations = 1, swap_xy = False, plotting = False, saving = False, result_directory = "."):
         """
         Initialises the attributes. The alignment direction can be swapped by changing the flag "swap_xy".
 
@@ -32,8 +33,27 @@ class VerticalAlignmentSwiss():
             this flag controls the alignment direction
         plotting : bool
             this flag activates the plotting 
-        """
-         
+        saving : bool
+             if True, the shift results will be written to `result_directory`
+        result_directory : str
+            Path to the folder where results will be saved. This can be an absolute
+            or relative path. If saving is False, this has no effect.
+        """       
+        self.data = projections
+        self.max_shift = max_shift
+        self.iterations = iterations
+        self.swap_xy = swap_xy
+        self.plotting = plotting
+        self.saving = saving
+        if self.saving == True:
+            import os
+            if self.swap_xy == True:
+                filename = "delta_x_1D.npy"
+            else:
+                filename = "delta_y_1D.npy"
+            self.save_path = os.path.join(result_directory, filename)
+            if os.path.exists(self.save_path):
+                raise FileExistsError(f"{self.save_path} already exists. Please rename your file.")
         if swap_xy ==True:
             projections = np.swapaxes(projections, 1, 2)
             self.align = "X" 
@@ -41,11 +61,6 @@ class VerticalAlignmentSwiss():
         else:
             self.align = "Y"
             self.other = "X"
-        #self.data = self.create_data()
-        self.data = projections
-        self.max_shift = max_shift
-        self.iterations = iterations
-        self.plotting = plotting
         if plotting == True:
             self.plot_array(self.data[0], "0th projection", self.other, self.align)
         self.ROI = self.select_ROI(self.data, swap_xy)
@@ -60,6 +75,8 @@ class VerticalAlignmentSwiss():
         psi_final = self.shift_psi_by_array_and_mean(psi, self.delta_y_1D_final)[0]
         if self.plotting == True:
             self.plot_array(np.transpose(psi_final), f"psi_theta({self.align}) shifted",  'projection #', self.align)
+        if self.saving == True:
+            np.save(self.save_path, self.delta_y_1D_final)
 
     def plot_array(self, arr, title, x_label, y_label):
         """Creates a greyscale density plot of a 2D image.
@@ -145,7 +162,8 @@ class VerticalAlignmentSwiss():
         """
         arr = self.ROI
         M = np.sum(arr, axis=2)
-        self.plot_array(np.transpose(M), f"M_theta({self.align})",  'projection #', self.align)
+        if self.plotting == True:
+            self.plot_array(np.transpose(M), f"M_theta({self.align})",  'projection #', self.align)
         return M
     
     def remove_legendre_terms(f_y, degree=1):
@@ -211,7 +229,8 @@ class VerticalAlignmentSwiss():
         coeffs = np.linalg.lstsq(V, M_y.T, rcond=None)[0]  # shape: (degree+1, N)
         f_legendre = V @ coeffs  # shape: (H, N)
         psi = M_y.T - f_legendre  # shape: (H, N)
-        self.plot_array(np.transpose(psi.T), f"psi_theta({self.align})",  'projection #', self.align)
+        if self.plotting == True:
+            self.plot_array(np.transpose(psi.T), f"psi_theta({self.align})",  'projection #', self.align)
         return psi.T  # shape back to (N, H)
         
     def compute_error(self, psi, shifts_1D, theta_index, new_shift):
