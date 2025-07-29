@@ -78,7 +78,7 @@ class VerticalAlignmentCrossCorrelation():
     def __init__(self, projections):
         """Given projections, calculated the vertical alignment and applies it to them.
         It stores the result in an attribute."""
-        self.projections_aligned = self.projection_align_vertical(projections)
+        self.projections_aligned, self.vertical_shifts = self.projection_align_vertical(projections)
 
     def xcor(self, in1, in2):
         """
@@ -172,7 +172,7 @@ class VerticalAlignmentCrossCorrelation():
         print("y_to", y_to)
 
         projections = projections[:,y_from:y_to,:]
-        return projections
+        return projections, y_trans
 
 
 class HorizontalAlignmentCrossCorrelation(BaseClassHorizontalAlignment):
