@@ -8,16 +8,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Load the saved array
-#projections = np.load(r"src\projections_reduced.npy")
-#print("angle, vertical, horizontal = ",projections.shape)
-#swap_xy =True #False# True #
-#angles_reduced = np.load(r"src\angles_reduced.npy")
-
-
-
 class VerticalAlignmentSwiss():
-    def __init__(self, projections, max_shift = 50, iterations = 1, swap_xy = False, plotting = False, saving = False, result_directory = "."):
+    def __init__(self, projections, roi_range = None, max_shift = 50, iterations = 1, swap_xy = False, plotting = False, saving = False, result_directory = "."):
         """
         Initialises the attributes. The alignment direction can be swapped by changing the flag "swap_xy".
 
@@ -25,6 +17,10 @@ class VerticalAlignmentSwiss():
         ----------
         projections : 3D array
             input 3D image to be aligned
+        roi_range : tuple or None
+            A tuple of slice ranges for cropping a region of interest (ROI)
+            in the form (start, end), applied along the second axis (e.g., Y).
+            For example, (100, 200). If None, no cropping is applied.
         max_shift : int
             max pixel shift to search in each direction
         iterations : int
@@ -63,7 +59,7 @@ class VerticalAlignmentSwiss():
             self.other = "X"
         if plotting == True:
             self.plot_array(self.data[0], "0th projection", self.other, self.align)
-        self.ROI = self.select_ROI(self.data, swap_xy)
+        self.ROI = self.select_ROI(self.data, swap_xy, roi_range)
         if plotting == True:
             self.plot_array(self.ROI[0], "0th projection ROI", self.other, self.align)
         
@@ -116,7 +112,7 @@ class VerticalAlignmentSwiss():
         ax.set_ylabel(y_label)
         plt.show()
 
-    def select_ROI(self, arr, swap_xy, roi=None):
+    def select_ROI(self, arr, swap_xy, roi_range):
         """
         Select a Region of Interest (ROI) from a 3D array.
 
@@ -126,7 +122,7 @@ class VerticalAlignmentSwiss():
             Input 3D array.
         swap_xy : bool
             If True, skip cropping.
-        roi : tuple or None
+        roi_range : tuple or None
             A tuple of slice ranges for cropping in the form (start, end),
             applied along the second axis (e.g., Y). For example, (100, 200).
             If None, no cropping is applied.
@@ -139,13 +135,11 @@ class VerticalAlignmentSwiss():
         if swap_xy == True:
             return arr[:,:,:]
         else:
-            if roi is not None:
-                start, end = roi
+            if roi_range is not None:
+                start, end = roi_range
                 return arr[:, start:end, :]
             else:
                 return arr[:,:,:]
-                #return arr[:,100:200,:]
-                #return arr[:,100:600,:]
 
     def calculate_M(self):
         """
@@ -270,7 +264,6 @@ class VerticalAlignmentSwiss():
         # Apply new test shift to the current projection
         new_psi_matrix = self.shift_psi_by_array_and_mean(psi, shifts_new_1D)[0]
         error = np.sum((new_psi_matrix - mean_psi) ** 2)
-        #print(new_psi_matrix)
     
     def shift_psi_by_array_and_mean(self, psi, shifts_1D):
         """

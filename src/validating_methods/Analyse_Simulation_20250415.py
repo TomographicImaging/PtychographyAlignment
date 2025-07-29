@@ -6,6 +6,15 @@ import numpy as np
 from viewer.OpenViewer import OpenViewer
 from CT_reconstruction.TomoRecon import get_volume
 from alignment.VerticalAlignmentSwiss import VerticalAlignmentSwiss
+                #return arr[:,100:200,:]
+                #return arr[:,100:600,:]
+
+# Load the saved array
+#projections = np.load(r"src\projections_reduced.npy")
+#print("angle, vertical, horizontal = ",projections.shape)
+#swap_xy =True #False# True #
+#angles_reduced = np.load(r"src\angles_reduced.npy")
+
 
 # Load the saved array
 #projections_in = np.load(r"c:\Users\zvm34551\Coding_environment\DATA\Ptychography\Simulations\20250415\sphere_phantom_simulation_360_projections.npy")

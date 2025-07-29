@@ -92,8 +92,9 @@ def test_class_parameters_with_alignment():
     """Initialises the class and tests the run_alignment method for a mixture of max_shift and iterations."""
     projections = _create_data()
     parameters = {
-            "max_shift": [2,5,10],
-            "iterations": [1,2,4,5,10,20]
+            "roi_range": [None, (0,2), (1,3)],
+            "max_shift": [2, 5, 10],
+            "iterations": [1, 2, 4, 5, 10, 20]
         }
     for combo in itertools.product(*parameters.values()):
         kwargs = dict(zip(parameters.keys(), combo))
