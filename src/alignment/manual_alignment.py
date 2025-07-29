@@ -1,3 +1,7 @@
+# This file contains the manual alignment procedure from "src\pipeline\pipeline_based_on_original_notebook.ipynb"
+# The idea was to attempt to generalise the method. WIP
+#----------------------------------------------------------------------------------------------------------------
+
 import matplotlib.pyplot as plt
 import numpy as np
 # Load the saved array
