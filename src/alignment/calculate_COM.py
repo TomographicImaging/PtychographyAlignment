@@ -1,4 +1,11 @@
 
+# This file contains WIP to implement a more rigorous COM method. 
+# The main paper I was looking at is "Tomographic image alignment in three-dimensional
+# coherent diffraction microscopy" DOI: 10.1103/PhysRevB.79.052102 
+# (https://journals.aps.org/prb/abstract/10.1103/PhysRevB.79.052102)
+# Danica 30/07/2025 I did not manage to tidy this file or test the script.
+#-------------------------------------------------------------------------------------------
+
 # %%
 import numpy as np
 import os
