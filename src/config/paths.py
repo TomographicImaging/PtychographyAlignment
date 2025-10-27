@@ -5,7 +5,8 @@ except ImportError:
 
 #experimental data from Diamond
 
-pollen_Volpe_filepath = DATA_ROOT / "Experimental" / "pollen_Volpe" / "pty_tomo_NX.h5"
+#pollen_Volpe_filepath = DATA_ROOT / "Experimental" / "pollen_Volpe" / "pty_tomo_NX.h5"
+pollen_Volpe_filepath = DATA_ROOT / "pollen_Volpe" / "pty_tomo_NX.h5"
 pollen_Volpe_data_key = '/entry1/tomo_entry/data/data'
 pollen_Volpe_angle_key = '/entry1/tomo_entry/data/rotation_angle'
 
@@ -17,6 +18,11 @@ TiAlloy_Kuda_filepath = DATA_ROOT / "Experimental" / "TiAlloy_Kuda" / "projectio
 TiAlloy_Kuda_unwrapped_filepath = DATA_ROOT / "Experimental" / "TiAlloy_Kuda" / "projectionsSorted_unwrapped_phase.h5"
 TiAlloy_Kuda_data_key='/data'
 TiAlloy_Kuda_angle_key ='/entry/data/rotation_angle'
+
+# Connor Wright's data
+275019_filepath = DATA_ROOT / "connor_wright" / "scan_275019_275199_tomo_complex.nxs"
+275019_data_key = '/entry1/data'
+275019_angle_key = '/entry1/rotation_angle'
 
 # simulations 20250416
 angles_path = DATA_ROOT / "Simulations"/ "20250416"/ "sphere_phantom_angles_361.npy"

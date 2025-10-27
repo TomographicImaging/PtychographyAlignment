@@ -16,19 +16,19 @@ class BaseClassHorizontalAlignment():
     The way the shifts are calculated is, on the other hand, determined in the specific class.
     """
     
-    def apply_reprojection_shifts(self, projections_in, shifts, pad=0):
+    def apply_projection_shifts(self, projections_in, shifts, pad=0):
         """
         This method uses the shifts calculated before to "move" the projections
         
         Parameters
         ----------
         projections_in : 3D image to be aligned
-        shifts :
-        pad :
+        shifts : shifts required in pixels
+        pad : zero-padding the projections_in
 
         Returns
         -------
-        projections out : aligned projections
+        projections_out : aligned projections
         """
         projections_out = np.zeros_like(projections_in)
         projections_pad = np.copy(utils_used.pad(projections_in, (pad,0)))
@@ -76,15 +76,15 @@ class BaseClassHorizontalAlignment():
 
 class VerticalAlignmentCrossCorrelation():
     def __init__(self, projections):
-        """Given projections, calculated the vertical alignment and applies it to them.
+        """Given projections, calculates the vertical alignment and applies it to them.
         It stores the result in an attribute."""
         self.projections_aligned, self.vertical_shifts = self.projection_align_vertical(projections)
 
     def xcor(self, in1, in2):
         """
-        Calculates the cross correlation between two 2D images.
-        The shift is expressed as the maxium value of the correlation
-        from the centre of the image.
+        Calculates the cross correlation between two N-dimensional arrays. They
+        could be 2D images or 1D arrays. The shift is expressed as the maximum 
+        value of the correlation from the centre of the image.
         
         Parameters
         ----------
@@ -92,8 +92,8 @@ class VerticalAlignmentCrossCorrelation():
         
         Returns
         -------
-        shift 
-        xcor
+        shift : shift in pixels according to the cross correlation
+        xcor : result of cross correlation between images
         """
         xcor = signal.correlate(in1, in2, mode='same')
         shift = np.argmax(xcor)-(xcor.shape[0]/2)
@@ -107,11 +107,12 @@ class VerticalAlignmentCrossCorrelation():
         
         Parameters
         ----------
-        projections : 3D image
+        projections : 3D array with size Nx x Ny x Ntheta
         
         Returns
         -------
-        shifts : in the y direction"""
+        shifts : in the y direction
+        """
         proj_sum = np.sum(projections,2)
         shifts = np.zeros(projections.shape[0])
         xcor_ar = np.zeros_like(proj_sum)
@@ -151,6 +152,7 @@ class VerticalAlignmentCrossCorrelation():
         Returns
         -------
         projections : cropped 3D image in place
+        y_trans : y shifts calculated and applied
         """
         y_trans = self.get_y_shifts(projections)
         projections = self.apply_y_shifts(projections, y_trans)
@@ -176,11 +178,13 @@ class VerticalAlignmentCrossCorrelation():
 
 
 class HorizontalAlignmentCrossCorrelation(BaseClassHorizontalAlignment):
-    def __init__(self, projections_aligned_vert_fix2):
-        """Saves the projections as an attribute.
+    def __init__(self, projections):
+        """
+        Saves the projections as an attribute.
         Performs the horizontal alignment with cross-correlation and saves the resulting 3D image 
-        as an attribute."""
-        self.projections_aligned_vert_fix2 = projections_aligned_vert_fix2
+        as an attribute.
+        """
+        self.projections = projections
         self.correction_rough = self.horizontal_alignment()
 
     def calculate_correlation(self):
@@ -190,19 +194,21 @@ class HorizontalAlignmentCrossCorrelation(BaseClassHorizontalAlignment):
         
         Returns
         -------
-        quick_xcorrelation : the shift in the horizontal direction."""
-        projections_aligned_vert_fix2 = self.projections_aligned_vert_fix2
-        quick_xcorrelation = np.zeros((2,projections_aligned_vert_fix2.shape[0]))
+        quick_xcorrelation : the shift in the horizontal direction.
+        """
+        projections = self.projections
+        quick_xcorrelation = np.zeros((2,projections.shape[0]))
                                     
-        for gag in range(1,projections_aligned_vert_fix2.shape[0]):
-            a = (projections_aligned_vert_fix2[gag-1,:,:])#np.sum(projections[i,50:-50,250:750],0)
-            b = (projections_aligned_vert_fix2[gag,:,:])#np.sum(reprojections2[i,50:-50,250:750],0)
+        for gag in range(1,projections.shape[0]):
+            a = (projections[gag-1,:,:])
+            b = (projections[gag,:,:])
             
             shift_ab = register_translation(a,b,upsample_factor=100)
             quick_xcorrelation[1,gag] = shift_ab[0][1] + quick_xcorrelation[1,gag-1]
 
         plt.figure(figsize=[4,4])
         plt.plot(quick_xcorrelation[1,:])
+        
         return quick_xcorrelation
     
     def horizontal_alignment(self):
@@ -211,32 +217,32 @@ class HorizontalAlignmentCrossCorrelation(BaseClassHorizontalAlignment):
 
         Returns
         -------
-        correction_rough :
+        correction_rough : projections after rough horizontal alignment from cross correlation
         """
-        projections_aligned_vert_fix2 = self.projections_aligned_vert_fix2
+        projections = self.projections
         quick_xcorrelation = self.calculate_correlation()
-        correction_rough = self.apply_reprojection_shifts(projections_aligned_vert_fix2, -gaussian_filter1d(quick_xcorrelation,10), pad=1)
-        plt.imshow(projections_aligned_vert_fix2[:,200,:])
-        plt.figure(),plt.imshow(correction_rough[:,200,:])
+        correction_rough = self.apply_projection_shifts(projections, -gaussian_filter1d(quick_xcorrelation,10), pad=0)
+        
+        plt.imshow(projections[:,projections.shape[1]//2,:])
+        plt.figure(),plt.imshow(correction_rough[:,projections.shape[1]//2,:])
+        
         return correction_rough
 
 
 class COMAlignment(BaseClassHorizontalAlignment):
 
-    def __init__(self, projections_aligned_vert_fix, correction_rough, angles_reduced):
+    def __init__(self, projections, angles):
         
         """
         Defines attributes, aligns the projections.
 
         Parameters
         ----------
-        projections_aligned_vert_fix :
-        correction_rough :
-        angles_reduced :
+        projections : 3D stack of projections (usually after vertical alignment)
+        angles : array of acquisition angles
         """
-        self.projections_aligned_vert_fix = projections_aligned_vert_fix
-        self.correction_rough = correction_rough
-        self.angles_reduced = angles_reduced
+        self.projections = projections
+        self.angles = angles
         self.projections_fitted = self.alignment()
 
     def sin_func(self, x, a, w, b, c):
@@ -251,14 +257,14 @@ class COMAlignment(BaseClassHorizontalAlignment):
 
         Parameters 
         ----------
-        projections :
-        angles :
-        blur_filter :
+        projections : 3D stack of projections Nx Ny Ntheta
+        angles : array of acquisition angles, must match ntheta
+        blur_filter : amount of gaussian blurring to be done on the shifts
 
         Returns
         -------
-        projections_out
-        shifts
+        projections_out : projections after COM alignment
+        shifts : COM shifts
         """
         projections -= np.amin(projections)
         summed = np.sum(projections[:,:,:],1)
@@ -274,7 +280,7 @@ class COMAlignment(BaseClassHorizontalAlignment):
         com_mid = com_min + com_range//2
         
         params, params_covariance = optimize.curve_fit(self.sin_func, angles, com[1,:], p0=[com_range, 1, 0, com_mid])
-        ideal = self.sin_func(self.angles_reduced, params[0], params[1], params[2], params[3])
+        ideal = self.sin_func(self.angles, params[0], params[1], params[2], params[3])
         
         #ideal = (np.cos(angles)*com_range) + com_mid
         
@@ -293,30 +299,30 @@ class COMAlignment(BaseClassHorizontalAlignment):
         plt.plot(shifts[1,:],'r+')
         #plt.legend(handles=['com','ideal','shifts'])
 
-        projections_out = self.apply_reprojection_shifts(projections, shifts, pad=1)
+        projections_out = self.apply_projection_shifts(projections, shifts, pad=1)
         return projections_out, shifts
 
     def alignment(self):
-        """calculate the rough overall translation between 0 and 180 degrees by using cross-correlation between projection 1 
-        and the last projection, flipped
-        shifty = register_translation(projections_aligned_vert_fix[0,:,:],np.fliplr(projections_aligned_vert_fix[-1,:,:]),upsample_factor=100)
-        print('The shift between 0 deg and 180 deg is roughly ' + str(shifty[0][0]) + ' in the vertical direction and '
-                            + str(shifty[0][1]) + ' in the horizontal direction.')
-
+        """
         Calculate the centre of mass (COM) for each projection of the scan. The COM should follow a sinusoidal motion.
-        Then fit a sinusoid and shift the projections as required to fit that sinusoid."""
-        projections_aligned_vert_fix = self.projections_aligned_vert_fix
-        correction_rough = self.correction_rough
-        angles_reduced = self.angles_reduced
+        Then fit a sinusoid and shift the projections as required to fit that sinusoid.
+        
+        Returns
+        -------
+        projections_fitted : projections after centre of mass alignment
+        
+        """
+        projections = self.projections
+        angles = self.angles
 
-        projections_fitted, shifts_fitted = self.fit_com_to_sin(correction_rough,angles_reduced, blur_filter = 20)
+        projections_fitted, shifts_fitted = self.fit_com_to_sin(projections,angles, blur_filter = 20)
 
         plt.figure(figsize=[5,5])
         plt.plot(shifts_fitted[1,:])
 
         plt.figure(figsize=[7,5])
-        ax1 = plt.subplot(1,3,1), plt.imshow(projections_fitted[:,int(projections_fitted.shape[1]/2),:])
-        ax2 = plt.subplot(1,3,2), plt.imshow(projections_aligned_vert_fix[:,int(projections_aligned_vert_fix.shape[1]/2),:])
-        ax3 = plt.subplot(1,3,3), plt.imshow(projections_aligned_vert_fix[:,int(projections_aligned_vert_fix.shape[1]/2),:]-projections_fitted[:,int(projections_fitted.shape[1]/2),:])
+        plt.subplot(1,3,1), plt.imshow(projections_fitted[:,int(projections_fitted.shape[1]//2),:])
+        plt.subplot(1,3,2), plt.imshow(projections[:,int(projections.shape[1]//2),:])
+        plt.subplot(1,3,3), plt.imshow(projections[:,int(projections.shape[1]//2),:]-projections_fitted[:,int(projections_fitted.shape[1]/2),:])
 
         return projections_fitted

@@ -19,7 +19,7 @@ class Unwrap():
         Parameters
         ----------
         phase_stack : ndarray
-            A 3D NumPy array of shape (Z, Y, X) representing wrapped phase data.
+            A 3D NumPy array of shape (Z, Y, X) representing unwrapped phase data.
         """
         if self.parallel == True:
             from joblib import Parallel, delayed
@@ -43,7 +43,7 @@ def unwrap_slice(slice_data):
     Parameters
     ----------
     slice_data : ndarray
-        A 2D NumPy array representing a single wrapped phase slice.
+        A 2D NumPy array representing a single unwrapped phase slice.
     """
     slice_data[:] = unwrap.unwrap_phase(slice_data)
 
