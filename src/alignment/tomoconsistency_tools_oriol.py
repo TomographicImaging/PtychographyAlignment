@@ -83,8 +83,50 @@ def smooth_edges(img, win_size=5, dims=(0,1)):
                  
     return img
 
-def fft_partial(x, fft_axis, split_axis, split=None, inverse=False):
+def fft_partial(x, fft_axis, split_axis, split=1, inverse=False):
     
+    import numpy as np
+    
+    # Estimate memory and determine split if not provided
+    if split is None:
+        raise Exception('This part of the code is not ready yet!')
+        # mem_req = x.size * 8 * np.log2(x.shape[fft_axis])
+        # if mem_req < 50e9:  # Assume at least 50 GB RAM available
+        #     split = 1
+        # else:
+        #     avail_mem = utils.check_available_memory() * 1e6  # Placeholder
+        #     split = int(np.ceil(mem_req / avail_mem))
+
+    # If no splitting needed, apply FFT directly
+    if split == 1:
+        if inverse:
+            return np.fft.ifft(x, axis=fft_axis)
+        else:
+            return np.fft.fft(x, axis=fft_axis)
+
+    # Split and process in chunks
+    Np = x.shape
+    chunk_size = int(np.ceil(Np[split_axis] / split))
+
+    slices = [slice(None)] * x.ndim
+    for i in range(split):
+        start = i * chunk_size
+        end = min(Np[split_axis], (i + 1) * chunk_size)
+        slices[split_axis] = slice(start, end)
+        x_chunk = x[tuple(slices)]
+        if inverse:
+            x_chunk = np.fft.ifft(x_chunk, axis=fft_axis)
+        else:
+            x_chunk = np.fft.fft(x_chunk, axis=fft_axis)
+        x[tuple(slices)] = x_chunk
+
+    return x
+
+def ifft_partial(x,fft_axis,split_axis, split = 1):
+
+    x = fft_partial(x, fft_axis, split_axis, split, inverse=True)
+    
+    return x
     
 def get_img_grad(img, axis=None, split=1):
     '''
@@ -105,6 +147,7 @@ def get_img_grad(img, axis=None, split=1):
         DESCRIPTION.
 
     '''
+    import numpy as np
     
     # Check if image is real
     is_real = np.isrealobj(img)
@@ -137,6 +180,68 @@ def get_img_grad(img, axis=None, split=1):
 
     return dX, dY
 
+
+def imshift_fft_ax(img, shift, ax, apply_fft=True):
+    '''
+    % IMSHIFT_FFT_AX  will apply subpixel shift that can be different for each 
+% frame along one dimension only 
+% If apply_fft == false, then images will be assumed to be in fourier space 
+%
+% Inputs:
+%   **img - inputs ndim array to be shifted along ax-th dimension
+%   **ax  - axis along which the array will be shifted 
+%   **shift - Nx1 vector of shifts, positive direction is up
+%   **apply_fft = false - if the img is already after fft, default is false
+% *returns*: 
+%   ++img - shifted image  / volume 
+    '''
+    import numpy as np
+    
+    if np.all(np.asarray(shift) == 0):
+        return img
+
+    is_real = np.isrealobj(img)
+    Npix = img.shape
+
+    # Determine shape for broadcasting
+    if img.ndim == 3:
+        Np = [1, 1, Npix[2]]
+    else:
+        Np = list(Npix)
+        Np[ax] = 1
+
+    Ng = [1, 1, 1]
+    if ax >= img.ndim:
+        Npix = list(Npix)
+        Npix.append(1)
+    Ng[ax] = Npix[ax]
+
+    # Expand scalar shift to full shape
+    if np.isscalar(shift):
+        shift = np.full(Np, shift)
+
+    # Create frequency grid
+    grid = np.fft.ifftshift(np.arange(-Npix[ax] // 2, int(np.ceil(Npix[ax] / 2)))) / Npix[ax]
+
+    # Compute phase shift
+    X = np.exp(-2j * np.pi * np.reshape(shift, Np) * np.reshape(grid, Ng))
+
+    # Apply FFT if requested
+    if apply_fft:
+        img = fft_partial(img, fft_axis=ax, split_axis=(1 + ax % img.ndim))
+
+    # Apply phase shift
+    img = img * X
+
+    # Apply inverse FFT if requested
+    if apply_fft:
+        img = ifft_partial(img, fft_axis=ax, split_axis=(1 + ax % img.ndim))
+
+    if is_real:
+        img = np.real(img)
+
+    return img
+
      
 def get_phase_gradient_1D(img, ax=2, step=0.5, shift=0):
     '''
@@ -159,12 +264,11 @@ def get_phase_gradient_1D(img, ax=2, step=0.5, shift=0):
     # import utils.*
     # import math.*
     import numpy as np
-    from scipy.ndimage import pad
-
-    if np.isreal(img):
+    
+    if np.isreal(img.all()):
         img = np.exp(1j*img)
 
-    np.testing.assert_allclose(step >= 0, 'Difference step has to be > 0')
+    # np.testing.assert_array_less(0, step, err_msg='Difference step has to be > 0') # it should be less or equal, but I couldn't find the right np.testing.assert
     
     # suppress edge issues if phase ramp is not subtracted / there is no
     # air around sample 
@@ -178,15 +282,22 @@ def get_phase_gradient_1D(img, ax=2, step=0.5, shift=0):
 
     if step == 0:
         # analytic formula (sensitive to noise) but faster 
-        img = img / (abs(img) + eps); 
+        img = img / (abs(img) + np.finfo(float).eps); 
         d_img = get_img_grad(img, ax); # img is assumed to be complex 
         d_img = np.imag(np.conj(img)*d_img);
-    else
-        d_img = angle( imshift_fft_ax(img,-step+shift,ax) .* conj( imshift_fft_ax(img,step+shift,ax)))/(2*step);
-    end
-    % remove padding 
-    ind = circshift({pad_distance:size(d_img,ax)-pad_distance-1,':', ':'},ax-1);
-    d_img = d_img(ind{:}); 
+    else:
+        d_img = np.angle(imshift_fft_ax(img,-step+shift,ax) * np.conj(imshift_fft_ax(img,step+shift,ax)))/(2*step);
+    
+    # remove padding 
+        
+    # Create slicing indices
+    ind = [slice(None)] * d_img.ndim
+    ind[ax] = slice(pad_distance, d_img.shape[ax] - pad_distance - 1)
+    
+    # Apply circular shift to the list of slices
+    ind = np.roll(ind, ax - 1)
+
+    d_img = d_img[tuple(ind)]
     
 
-#     return d_img
+    return d_img
