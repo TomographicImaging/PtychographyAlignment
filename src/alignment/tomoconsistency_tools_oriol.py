@@ -30,7 +30,7 @@ def gausswin(L, a=2.5):
     
     return w
 
-def smooth_edges(img, win_size=5, dims=(0,1)):
+def smooth_edges(img, win_size=5, dims=[0,1]):
     '''
     SMOOTH_EDGES takes stack of 2D images and smooths boundaries to avoid sharp edge artefacts during imshift_fft 
     
@@ -243,7 +243,7 @@ def imshift_fft_ax(img, shift, ax, apply_fft=True):
     return img
 
      
-def get_phase_gradient_1D(img, ax=2, step=0.5, shift=0):
+def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
     '''
     GET_PHASE_GRADIENT_1D get 1D gradient of phase of an image stack. 
     Accepts either complex image or just phase 
@@ -253,7 +253,7 @@ def get_phase_gradient_1D(img, ax=2, step=0.5, shift=0):
     Inputs
         **img     - stack of complex valued input images 
     *optional*
-        **ax      - axis of derivative, default = 2
+        **ax      - axis of derivative, default = 1
         **step    - step used to calculate the central difference, default=0 (analytic expression)
         **shift   - perform shift and gradient calculation in single step 
     
@@ -278,15 +278,15 @@ def get_phase_gradient_1D(img, ax=2, step=0.5, shift=0):
     pad_config = [(w,w) for w in pad_widths]
     img = np.pad(img,pad_config,mode = 'symmetric')
     
-    img = smooth_edges(img, pad_distance, ax); # this is from their utils
+    img = smooth_edges(img, pad_distance, [ax]) # this is from their utils
 
     if step == 0:
         # analytic formula (sensitive to noise) but faster 
-        img = img / (abs(img) + np.finfo(float).eps); 
-        d_img = get_img_grad(img, ax); # img is assumed to be complex 
-        d_img = np.imag(np.conj(img)*d_img);
+        img = img / (abs(img) + np.finfo(float).eps)
+        d_img = get_img_grad(img, ax) # img is assumed to be complex 
+        d_img = np.imag(np.conj(img)*d_img)
     else:
-        d_img = np.angle(imshift_fft_ax(img,-step+shift,ax) * np.conj(imshift_fft_ax(img,step+shift,ax)))/(2*step);
+        d_img = np.angle(imshift_fft_ax(img,-step+shift,ax) * np.conj(imshift_fft_ax(img,step+shift,ax)))/(2*step)
     
     # remove padding 
         
