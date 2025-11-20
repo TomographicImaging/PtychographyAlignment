@@ -181,6 +181,74 @@ def get_img_grad(img, axis=None, split=1):
     return dX, dY
 
 
+def imshift_fft(img, x, y=None, apply_fft=True, weights=None):
+    """
+    Apply subpixel shift using Fourier domain phase multiplication.
+
+    Parameters:
+        img (ndarray): Input image stack (can be complex).
+        x (float or ndarray): Shift in x-direction (columns) or Nx2 array.
+        y (float or ndarray): Shift in y-direction (rows).
+        apply_fft (bool): If False, assume img is already in Fourier space.
+        weights (ndarray or None): Optional weighting array to reduce noise.
+
+    Returns:
+        ndarray: Shifted image stack.
+    """
+    import numpy as np
+    
+    # Handle input arguments
+    if y is None:
+        y = x[:, 1]
+        x = x[:, 0]
+
+    if weights is not None and not np.isscalar(weights):
+        eps_ = 1e2 * np.finfo(img.dtype).eps
+        weights = np.maximum(eps_, weights)
+
+    if np.all(x == 0) and np.all(y == 0):
+        return img
+
+    # Apply weights before FFT if provided
+    if weights is not None and not np.isscalar(weights) and apply_fft:
+        img = img * weights
+
+    # Optimize for single-axis shifts
+    if np.all(x == 0):
+        return imshift_fft_ax(img, y, ax=0, apply_fft=apply_fft)
+    elif np.all(y == 0):
+        return imshift_fft_ax(img, x, ax=1, apply_fft=apply_fft)
+
+    # Full 2D FFT-based shift
+    real_img = np.isrealobj(img)
+    Np = img.shape
+
+    if apply_fft:
+        img = np.fft.fft2(img, axes=(0,1)) # this was math.fft2_partial
+
+    # Compute phase shift for x-axis
+    xgrid = np.fft.ifftshift(np.arange(-Np[1] // 2, int(np.ceil(Np[1] / 2)))) / Np[1]
+    X = np.exp(-2j * np.pi * np.reshape(x[:, None] * xgrid, (1, Np[1], -1)))
+    img = img * X
+
+    # Compute phase shift for y-axis
+    ygrid = np.fft.ifftshift(np.arange(-Np[0] // 2, int(np.ceil(Np[0] / 2)))) / Np[0]
+    Y = np.exp(-2j * np.pi * np.reshape(y[:, None] * ygrid, (Np[0], 1, -1)))
+    img = img * Y
+
+    if apply_fft:
+        img = np.fft.ifft2(img, axes=(0,1)) # this was math.ifft2_partial
+
+    if real_img:
+        img = np.real(img)
+
+    # Adjust weights after shift if provided
+    if weights is not None and not np.isscalar(weights) and apply_fft:
+        weights_shifted = imshift_fft(weights, x, y)
+        img = img / weights_shifted
+
+    return img
+
 def imshift_fft_ax(img, shift, ax, apply_fft=True):
     '''
     % IMSHIFT_FFT_AX  will apply subpixel shift that can be different for each 
@@ -241,6 +309,109 @@ def imshift_fft_ax(img, shift, ax, apply_fft=True):
         img = np.real(img)
 
     return img
+
+
+def imshift_linear(img, x, y=None, method='linear'):
+    """
+    Apply a shift to an image or stack of images using linear interpolation.
+    
+    Parameters:
+        img (ndarray): Input image or stack of images (Nx, Ny, Nlayers).
+        x (float or ndarray): Shift in x-direction (columns) or array of shifts per frame.
+        y (float or ndarray): Shift in y-direction (rows) or array of shifts per frame.
+        method (str): Interpolation method: 'nearest', 'linear', 'cubic', or 'circ'.
+    
+    Returns:
+        ndarray: Shifted image or stack of images.
+    """
+    
+    import numpy as np
+    from scipy.ndimage import map_coordinates
+    
+    if y is None:
+        # If y not provided, assume x contains pairs
+        y = x[:, 1]
+        x = x[:, 0]
+
+    if np.all(np.asarray(x) == 0) and np.all(np.asarray(y) == 0):
+        return img
+
+    real_img = np.isrealobj(img)
+    Nx, Ny, Nlayers = img.shape
+
+    # Expand scalar shifts to arrays
+    if np.isscalar(x):
+        x = np.full(Nlayers, x)
+    if np.isscalar(y):
+        y = np.full(Nlayers, y)
+
+    if method.lower() == 'circ':
+        # Circular shift
+        X = np.arange(Nx)
+        Y = np.arange(Ny)
+        for ii in range(Nlayers):
+            img[:, :, ii] = img[np.roll(X, int(round(y[ii]))), np.roll(Y, int(round(x[ii]))), ii]
+    else:
+        # Interpolation-based shift
+        order = {'nearest': 0, 'linear': 1, 'cubic': 3}.get(method.lower(), 1)
+        for ii in range(Nlayers):
+            coords_y, coords_x = np.meshgrid(np.arange(Ny), np.arange(Nx))
+            coords = np.array([coords_x - y[ii], coords_y - x[ii]])
+            img[:, :, ii] = map_coordinates(img[:, :, ii], coords, order=order, mode='constant', cval=0.0)
+
+    if real_img:
+        img = np.real(img)
+
+    return img
+
+import numpy as np
+
+def imshift_linear_ax(img, shift, ax, method='linear', extrap_val=np.nan):
+    """
+    Apply a shift along a specific axis for each frame using linear interpolation.
+
+    Parameters:
+        img (ndarray): Input image or stack of images.
+        shift (float or ndarray): Shift or vector of shifts for each frame.
+        ax (int): Axis along which the shift will be performed.
+        method (str): Interpolation method: 'nearest', 'linear', 'cubic', or 'circ'.
+        extrap_val (float): Value for missing regions after interpolation (default: NaN).
+
+    Returns:
+        ndarray: Shifted image or stack of images.
+    """
+        
+    if np.all(np.asarray(shift) == 0):
+        return img
+
+    Npix = img.shape
+    img = img.astype(np.float32)
+
+    # Bring the shifting axis to the front
+    img = np.moveaxis(img, ax, 0)
+    img_out = np.copy(img)
+
+    fixed_axis = (ax + 1) % img.ndim  # Equivalent to MATLAB's ax_0
+
+    if method.lower() == 'circ':
+        # Circular shift
+        for i in range(Npix[fixed_axis]):
+            slicer = [slice(None)] * img.ndim
+            slicer[fixed_axis] = i
+            img_out[tuple(slicer)] = np.roll(img[tuple(slicer)], int(round(shift[i])), axis=0)
+    else:
+        # Interpolation-based shift
+        order = {'nearest': 0, 'linear': 1, 'cubic': 3}.get(method.lower(), 1)
+        for i in range(Npix[fixed_axis]):
+            slicer = [slice(None)] * img.ndim
+            slicer[fixed_axis] = i
+            coords = np.arange(img.shape[0]) - shift[i]
+            img_out[tuple(slicer)] = np.interp(coords, np.arange(img.shape[0]), img[tuple(slicer)], left=extrap_val, right=extrap_val)
+
+    # Move axis back to original position
+    img_out = np.moveaxis(img_out, 0, ax)
+
+    return img_out
 
      
 def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
