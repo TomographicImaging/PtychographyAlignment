@@ -225,15 +225,19 @@ def imshift_fft(img, x, y=None, apply_fft=True, weights=None):
 
     if apply_fft:
         img = np.fft.fft2(img, axes=(0,1)) # this was math.fft2_partial
-
+        
     # Compute phase shift for x-axis
+    Ng = [1, Np[1], 1]
+    shift = np.full(Np, x)
     xgrid = np.fft.ifftshift(np.arange(-Np[1] // 2, int(np.ceil(Np[1] / 2)))) / Np[1]
-    X = np.exp(-2j * np.pi * np.reshape(x[:, None] * xgrid, (1, Np[1], -1)))
+    X = np.exp(-2j * np.pi * np.reshape(shift, Np) * np.reshape(xgrid, Ng))
     img = img * X
 
     # Compute phase shift for y-axis
+    Ng = [Np[0], 1, 1]
+    shift = np.full(Np, y)
     ygrid = np.fft.ifftshift(np.arange(-Np[0] // 2, int(np.ceil(Np[0] / 2)))) / Np[0]
-    Y = np.exp(-2j * np.pi * np.reshape(y[:, None] * ygrid, (Np[0], 1, -1)))
+    Y = np.exp(-2j * np.pi * np.reshape(shift, Np) * np.reshape(ygrid, Ng))
     img = img * Y
 
     if apply_fft:
@@ -344,25 +348,27 @@ def imshift_linear(img, x, y=None, method='linear'):
         x = np.full(Nlayers, x)
     if np.isscalar(y):
         y = np.full(Nlayers, y)
-
+        
+    img_f = np.zeros(img.shape, dtype=img.dtype)
+    
     if method.lower() == 'circ':
         # Circular shift
         X = np.arange(Nx)
         Y = np.arange(Ny)
         for ii in range(Nlayers):
-            img[:, :, ii] = img[np.roll(X, int(round(y[ii]))), np.roll(Y, int(round(x[ii]))), ii]
+            img_f[:, :, ii] = img[np.roll(X, int(round(y[ii]))), np.roll(Y, int(round(x[ii]))), ii]
     else:
         # Interpolation-based shift
         order = {'nearest': 0, 'linear': 1, 'cubic': 3}.get(method.lower(), 1)
         for ii in range(Nlayers):
             coords_y, coords_x = np.meshgrid(np.arange(Ny), np.arange(Nx))
             coords = np.array([coords_x - y[ii], coords_y - x[ii]])
-            img[:, :, ii] = map_coordinates(img[:, :, ii], coords, order=order, mode='constant', cval=0.0)
+            img_f[:, :, ii] = map_coordinates(img[:, :, ii], coords, order=order, mode='constant', cval=0.0)
 
     if real_img:
-        img = np.real(img)
+        img_f = np.real(img_f)
 
-    return img
+    return img_f
 
 import numpy as np
 
@@ -380,38 +386,46 @@ def imshift_linear_ax(img, shift, ax, method='linear', extrap_val=np.nan):
     Returns:
         ndarray: Shifted image or stack of images.
     """
-        
+    from scipy.ndimage import map_coordinates
+     
     if np.all(np.asarray(shift) == 0):
         return img
 
-    Npix = img.shape
-    img = img.astype(np.float32)
-
-    # Bring the shifting axis to the front
-    img = np.moveaxis(img, ax, 0)
-    img_out = np.copy(img)
-
-    fixed_axis = (ax + 1) % img.ndim  # Equivalent to MATLAB's ax_0
+    Nx, Ny, Nlayers = img.shape
+    
+    if np.isscalar(shift):
+        shift = np.full(Nlayers, shift)
+        
+    img_f = np.copy(img)
 
     if method.lower() == 'circ':
         # Circular shift
-        for i in range(Npix[fixed_axis]):
-            slicer = [slice(None)] * img.ndim
-            slicer[fixed_axis] = i
-            img_out[tuple(slicer)] = np.roll(img[tuple(slicer)], int(round(shift[i])), axis=0)
+        X = np.arange(Nx)
+        Y = np.arange(Ny)
+        for ii in range(Nlayers):
+            if ax == 0:
+                img_f[:, :, ii] = img[np.roll(X, int(round(shift[ii]))), :, ii]
+            if ax == 1:
+                img_f[:, :, ii] = img[:, np.roll(Y, int(round(shift[ii]))), ii]
+            if ax != 0 and ax != 1:
+                print(ax)
+                raise Exception('"ax" is neither 0 nor 1')
     else:
         # Interpolation-based shift
         order = {'nearest': 0, 'linear': 1, 'cubic': 3}.get(method.lower(), 1)
-        for i in range(Npix[fixed_axis]):
-            slicer = [slice(None)] * img.ndim
-            slicer[fixed_axis] = i
-            coords = np.arange(img.shape[0]) - shift[i]
-            img_out[tuple(slicer)] = np.interp(coords, np.arange(img.shape[0]), img[tuple(slicer)], left=extrap_val, right=extrap_val)
-
-    # Move axis back to original position
-    img_out = np.moveaxis(img_out, 0, ax)
-
-    return img_out
+        for ii in range(Nlayers):
+            coords_y, coords_x = np.meshgrid(np.arange(Ny), np.arange(Nx))
+            if int(ax) == int(0):
+                coords = np.array([coords_x - shift[ii], coords_y])
+            if int(ax) == int(1):
+                coords = np.array([coords_x, coords_y - shift[ii]])    
+            if ax != 0 and ax != 1:
+                print(ax)
+                raise Exception('"ax" is neither 0 nor 1')
+                
+            img_f[:, :, ii] = map_coordinates(img[:, :, ii], coords, order=order, mode='constant', cval=0.0)
+            
+    return img_f
 
      
 def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
