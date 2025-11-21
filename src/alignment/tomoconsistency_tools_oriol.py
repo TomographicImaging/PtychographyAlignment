@@ -155,7 +155,9 @@ def get_img_grad(img, axis=None, split=1):
 
     dX = None
     dY = None
-
+    
+    axis = np.array(axis) # check if this works
+    
     if axis is None or 2 in axis:
         # Compute frequency vector for X-axis
         X = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[1]//2, np.ceil(Np[1]/2))) / Np[1]
@@ -486,3 +488,194 @@ def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
     
 
     return d_img
+
+
+def wrapToPi(x):
+    """
+    Wrap values to the range [-pi, pi].
+    """
+    return (x + np.pi) % (2 * np.pi) - np.pi
+
+
+def findresidues(phase):
+    """
+    Compute phase residues for 2D phase unwrapping.
+
+    Parameters:
+        phase (ndarray): Input phase (real or complex).
+
+    Returns:
+        ndarray: Residues array.
+    """
+    # If input is complex, take its phase angle
+    if not np.isrealobj(phase):
+        phase = np.angle(phase)
+
+    # Compute residues using wrapped differences
+    residues = wrapToPi(phase[1:, :-1, ...] - phase[:-1, :-1, ...])
+    residues += wrapToPi(phase[1:, 1:, ...] - phase[1:, :-1, ...])
+    residues += wrapToPi(phase[:-1, 1:, ...] - phase[1:, 1:, ...])
+    residues += wrapToPi(phase[:-1, :-1, ...] - phase[:-1, 1:, ...])
+
+    residues = residues / (2 * np.pi)
+    return residues
+
+
+def get_img_int_1D(grad_array, ax=0):
+    """
+    Use FFT to integrate the image along the selected axis.
+    Can be used for phase unwrapping.
+
+    Parameters:
+        grad_array (ndarray): Phase gradient array.
+        ax (int): Axis along which to integrate (default: 0).
+
+    Returns:
+        ndarray: Integrated image.
+    """
+    Np = grad_array.shape
+
+    if ax == 1:  # MATLAB axis=2 → Python axis=1
+        grad_array_fft = np.fft.fft(grad_array, axis=1)
+        xgrid = np.fft.ifftshift(np.arange(-Np[1] // 2, int(np.ceil(Np[1] / 2)))) / Np[1]
+
+        # Integration filter
+        X = np.exp(2j * np.pi * xgrid)
+        X = X / (2j * np.pi * xgrid)
+        X[0] = 0  # Avoid division by zero
+
+        # Apply filter and inverse FFT
+        integer = grad_array_fft * X[np.newaxis, :]
+        integer = np.fft.ifft(integer, axis=1)
+
+    elif ax == 0:  # MATLAB axis=1 → Python axis=0
+        grad_array_fft = np.fft.fft(grad_array, axis=0)
+        ygrid = np.fft.ifftshift(np.arange(-Np[0] // 2, int(np.ceil(Np[0] / 2)))) / Np[0]
+
+        # Integration filter
+        Y = np.exp(2j * np.pi * ygrid)
+        Y = Y / (2j * np.pi * ygrid)
+        Y[0] = 0
+
+        # Apply filter and inverse FFT
+        integer = grad_array_fft * Y[:, np.newaxis]
+        integer = np.fft.ifft(integer, axis=0)
+
+    else:
+        raise ValueError("Non-implemented dimension")
+
+    return integer
+
+
+def remove_sinogram_ramp(sinogram, air_gap, polyfit_order=-1):
+    """
+    Remove phase ramp/offset from an unwrapped sinogram using air regions.
+
+    Parameters:
+        sinogram (ndarray): Unwrapped projections (Nlayers x width x ...).
+        air_gap (list or tuple): [left_gap, right_gap] in pixels.
+        polyfit_order (int): 
+            -1 = subtract linear offset from each row separately
+             0 = remove constant offset
+             1 = remove 2D plane ramp
+
+    Returns:
+        ndarray: Sinogram after ramp removal.
+    """
+    air_gap = np.ceil(air_gap).astype(int)
+    Nlayers, width_sinogram = sinogram.shape[:2]
+    ax = np.arange(width_sinogram)
+
+    # Masks for air regions
+    mask_left = ax <= air_gap[0]
+    mask_right = ax >= width_sinogram - air_gap[min(len(air_gap)-1, 1)]
+
+    air_values = []
+
+    for mask in [mask_left, mask_right]:
+        # Average values in air region
+        avg_vals = np.sum(sinogram[:, mask], axis=1) / np.sum(mask)
+
+        if polyfit_order == 0:
+            # Constant offset
+            avg_vals = np.mean(avg_vals)
+        elif polyfit_order == 1:
+            # Fit a 2D plane iteratively
+            ramp = np.linspace(-1, 1, Nlayers)
+            weight = np.ones_like(avg_vals)
+            for _ in range(10):
+                plane_fit = (np.mean(weight * avg_vals) / np.mean(weight) +
+                             np.mean(weight * avg_vals * ramp) / np.mean(weight * ramp**2) * ramp)
+                deviation = 5 * np.median(np.abs(avg_vals - plane_fit))
+                weight = 1 / (1 + (np.abs(avg_vals - plane_fit) / deviation)**2)
+            avg_vals = plane_fit
+
+        air_values.append(avg_vals)
+
+    # Interpolate ramp between left and right air regions
+    ramp = np.interp(ax, [0, width_sinogram - 1], np.vstack(air_values).T)
+    ramp = np.expand_dims(ramp, axis=0)  # Match dimensions for broadcasting
+
+    # Remove ramp
+    sinogram = sinogram - ramp
+
+
+def unwrap2D_fft(phase_diff, axis, boundary=None, step=0):
+    """
+    Perform 2D phase unwrapping using FFT-based integration.
+
+    Parameters:
+        phase_diff (ndarray): Input phase difference or complex array.
+        axis (int): Axis along which to unwrap.
+        empty_region (optional): Region to remove ramp (default: None).
+        step (int): Step size for gradient calculation (default: 0).
+
+    Returns:
+        tuple: (phase, phase_diff, residues)
+    """
+    residues = []
+
+    # Compute residues if requested and input is complex
+    if not np.isrealobj(phase_diff):
+        residues = np.abs(findresidues(phase_diff)) > 0.1
+
+    # If input is complex, compute phase gradient
+    if not np.isrealobj(phase_diff):
+        phase_diff = get_phase_gradient_1D(phase_diff, ax=axis, step=step)
+
+    # Integrate to get phase
+    phase = np.real(get_img_int_1D(phase_diff, axis))
+
+    # Remove ramp if empty_region provided and axis == 2
+    if boundary is not None and axis == 1:  # MATLAB axis=2 → Python axis=1
+        phase = remove_sinogram_ramp(phase, boundary, -1)
+
+    return phase, phase_diff, residues
+
+
+def unwrap_data(sinogram, method, boundary):
+    """
+    Auxiliary function to perform data unwrapping.
+    See unwrap2D_fft for detailed help.
+
+    Parameters:
+        sinogram (ndarray): Input data.
+        method (str): Unwrapping method ('fft_1d', 'none', 'diff').
+        boundary: Boundary condition passed to unwrap2D_fft.
+
+    Returns:
+        ndarray: Unwrapped sinogram.
+    """
+    
+    method = method.lower()
+
+    if method == 'fft_1d':
+        # Unwrap the data by FFT along slices
+        sinogram = -unwrap2D_fft(sinogram, axis=1, boundary=boundary)
+    elif method in ['none', 'diff']:
+        # Do nothing
+        pass
+    else:
+        raise ValueError("Missing method")
+
+    return sinogram
