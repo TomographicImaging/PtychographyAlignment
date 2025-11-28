@@ -162,9 +162,9 @@ def get_img_grad(img, axis=None, split=1):
         # Compute frequency vector for X-axis
         X = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[1]//2, np.ceil(Np[1]/2))) / Np[1]
         # Apply partial FFT and multiply by frequency
-        dX = fft_partial(img, 2, 1, split, False) * X
+        dX = fft_partial(img, 1, 1, split, False) * X
         # Apply inverse partial FFT
-        dX = fft_partial(dX, 2, 1, split, True)
+        dX = fft_partial(dX, 1, 1, split, True)
         if is_real:
             dX = np.real(dX)
 
@@ -172,12 +172,12 @@ def get_img_grad(img, axis=None, split=1):
         # Compute frequency vector for Y-axis
         Y = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[0]//2, np.ceil(Np[0]/2))) / Np[0]
         # Apply partial FFT and multiply by frequency
-        dY = fft_partial(img, 1, 2, split, False) * Y[:, np.newaxis]
+        dY = fft_partial(img, 0, 2, split, False) * Y[:, np.newaxis, np.newaxis]
         # Apply inverse partial FFT
-        dY = fft_partial(dY, 1, 2, split, True)
+        dY = fft_partial(dY, 0, 2, split, True)
         if is_real:
             dY = np.real(dY)
-        if axis is None or len(axis) == 1:
+        if axis is None or axis.size == 1:
             dX = dY
 
     return dX, dY
@@ -537,7 +537,7 @@ def get_img_int_1D(grad_array, ax=0):
 
     if ax == 1:  # MATLAB axis=2 → Python axis=1
         grad_array_fft = np.fft.fft(grad_array, axis=1)
-        xgrid = np.fft.ifftshift(np.arange(-Np[1] // 2, int(np.ceil(Np[1] / 2)))) / Np[1]
+        xgrid = np.fft.ifftshift(np.arange(-Np[1] // 2 + 1, int(np.ceil(Np[1] / 2)))) / Np[1]
 
         # Integration filter
         X = np.exp(2j * np.pi * xgrid)
@@ -545,7 +545,7 @@ def get_img_int_1D(grad_array, ax=0):
         X[0] = 0  # Avoid division by zero
 
         # Apply filter and inverse FFT
-        integer = grad_array_fft * X[np.newaxis, :]
+        integer = grad_array_fft * X[np.newaxis, :, np.newaxis]
         integer = np.fft.ifft(integer, axis=1)
 
     elif ax == 0:  # MATLAB axis=1 → Python axis=0
@@ -558,7 +558,7 @@ def get_img_int_1D(grad_array, ax=0):
         Y[0] = 0
 
         # Apply filter and inverse FFT
-        integer = grad_array_fft * Y[:, np.newaxis]
+        integer = grad_array_fft * Y[:, np.newaxis, np.newaxis]
         integer = np.fft.ifft(integer, axis=0)
 
     else:
@@ -679,3 +679,15 @@ def unwrap_data(sinogram, method, boundary):
         raise ValueError("Missing method")
 
     return sinogram
+
+def get_img_grad_filtered():
+    return img
+
+def imfilter_high_pass_1d():
+    return sino
+
+def get_resid_sino():
+    return resid_sino
+
+def find_optimal_shift(sinogram_model, sinogram, weights):
+    return shift, err
