@@ -162,9 +162,9 @@ def get_img_grad(img, axis=None, split=1):
         # Compute frequency vector for X-axis
         X = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[1]//2, np.ceil(Np[1]/2))) / Np[1]
         # Apply partial FFT and multiply by frequency
-        dX = fft_partial(img, 2, 1, split, False) * X
+        dX = fft_partial(img, 1, 1, split, False) * X
         # Apply inverse partial FFT
-        dX = fft_partial(dX, 2, 1, split, True)
+        dX = fft_partial(dX, 1, 1, split, True)
         if is_real:
             dX = np.real(dX)
 
@@ -172,12 +172,12 @@ def get_img_grad(img, axis=None, split=1):
         # Compute frequency vector for Y-axis
         Y = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[0]//2, np.ceil(Np[0]/2))) / Np[0]
         # Apply partial FFT and multiply by frequency
-        dY = fft_partial(img, 1, 2, split, False) * Y[:, np.newaxis]
+        dY = fft_partial(img, 0, 2, split, False) * Y[:, np.newaxis, np.newaxis]
         # Apply inverse partial FFT
-        dY = fft_partial(dY, 1, 2, split, True)
+        dY = fft_partial(dY, 0, 2, split, True)
         if is_real:
             dY = np.real(dY)
-        if axis is None or len(axis) == 1:
+        if axis is None or axis.size == 1:
             dX = dY
 
     return dX, dY
@@ -429,7 +429,7 @@ def imshift_linear_ax(img, shift, ax, method='linear', extrap_val=np.nan):
             
     return img_f
 
-     
+
 def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
     '''
     GET_PHASE_GRADIENT_1D get 1D gradient of phase of an image stack. 
@@ -537,7 +537,7 @@ def get_img_int_1D(grad_array, ax=0):
 
     if ax == 1:  # MATLAB axis=2 → Python axis=1
         grad_array_fft = np.fft.fft(grad_array, axis=1)
-        xgrid = np.fft.ifftshift(np.arange(-Np[1] // 2, int(np.ceil(Np[1] / 2)))) / Np[1]
+        xgrid = np.fft.ifftshift(np.arange(-Np[1] // 2 + 1, int(np.ceil(Np[1] / 2)))) / Np[1]
 
         # Integration filter
         X = np.exp(2j * np.pi * xgrid)
@@ -545,7 +545,7 @@ def get_img_int_1D(grad_array, ax=0):
         X[0] = 0  # Avoid division by zero
 
         # Apply filter and inverse FFT
-        integer = grad_array_fft * X[np.newaxis, :]
+        integer = grad_array_fft * X[np.newaxis, :, np.newaxis]
         integer = np.fft.ifft(integer, axis=1)
 
     elif ax == 0:  # MATLAB axis=1 → Python axis=0
@@ -558,7 +558,7 @@ def get_img_int_1D(grad_array, ax=0):
         Y[0] = 0
 
         # Apply filter and inverse FFT
-        integer = grad_array_fft * Y[:, np.newaxis]
+        integer = grad_array_fft * Y[:, np.newaxis, np.newaxis]
         integer = np.fft.ifft(integer, axis=0)
 
     else:
@@ -671,7 +671,7 @@ def unwrap_data(sinogram, method, boundary):
 
     if method == 'fft_1d':
         # Unwrap the data by FFT along slices
-        sinogram = -unwrap2D_fft(sinogram, axis=1, boundary=boundary)
+        sinogram = -unwrap2D_fft(sinogram, axis=1, boundary=boundary)[0]
     elif method in ['none', 'diff']:
         # Do nothing
         pass
@@ -679,3 +679,207 @@ def unwrap_data(sinogram, method, boundary):
         raise ValueError("Missing method")
 
     return sinogram
+
+def imfilter_high_pass_1d(img, ax, sigma, padding=0, apply_fft=True):
+    """
+    Apply a high-pass filter along a given axis using FFT.
+    
+    Parameters:
+    img : ndarray
+        Input image (N-dimensional).
+    ax : int
+        Axis along which to apply the filter.
+    sigma : float
+        Filtering intensity in [0, 1]. If sigma <= 0, derivative filter is used.
+    padding : int, optional
+        Padding size along the axis to avoid edge artifacts (default=0).
+    apply_fft : bool, optional
+        If True, assume img is in real space and apply FFT (default=True).
+    
+    Returns:
+    img : ndarray
+        High-pass filtered image.
+    """
+
+    Ndims = img.ndim
+    padding = int(np.ceil(padding))
+
+    # Symmetric padding along the specified axis
+    if padding > 0:
+        pad_width = [(0, 0)] * Ndims
+        pad_width[ax] = (padding, padding)
+        img = np.pad(img, pad_width, mode='symmetric')
+
+    Npix = img.shape
+    shape = [1] * Ndims
+    shape[ax] = Npix[ax]
+    is_real = np.isrealobj(img)
+
+    # FFT along the specified axis
+    if apply_fft:
+        img = np.fft.fft(img, axis=ax)
+
+    # Frequency grid
+    x = np.arange(-Npix[ax] // 2, Npix[ax] // 2) / Npix[ax]
+    x = x.reshape(shape)
+
+    # Adjust sigma for resolution independence
+    sigma = 256 / (Npix[ax] - 2 * padding) * sigma
+
+    # Construct spectral filter
+    if sigma == 0:
+        # Derivative filter
+        freq = np.fft.fftshift(np.arange(Npix[ax]) / Npix[ax] - 0.5)
+        spectral_filter = 2j * np.pi * freq.reshape(shape)
+    else:
+        spectral_filter = np.fft.fftshift(np.exp(1.0 / (-(x ** 2) / (sigma ** 2))))
+
+    # Apply filter
+    img = img * spectral_filter
+
+    # Inverse FFT if needed
+    if apply_fft:
+        img = np.fft.ifft(img, axis=ax)
+    if is_real:
+        img = np.real(img)
+
+    # Crop padding
+    if padding > 0:
+        slicer = [slice(None)] * Ndims
+        slicer[ax] = slice(padding, Npix[ax] - padding)
+        img = img[tuple(slicer)]
+
+    return img
+
+def get_img_grad_filtered(img, axis, high_pass_filter, smooth_win):
+    """
+    Compute filtered image gradient along specified axis.
+    
+    Parameters:
+    img : ndarray
+        Input image.
+    axis : int
+        Axis for gradient (1 for horizontal, 2 for vertical in MATLAB terms).
+    high_pass_filter : float
+        Filter strength.
+    smooth_win : int
+        Window size for edge smoothing.
+    
+    Returns:
+    d_img : ndarray
+        Filtered gradient image.
+    """
+
+    # Smooth edges to avoid jumps
+    img = smooth_edges(img, smooth_win, [1 + (axis % 2)])
+    is_real = np.isrealobj(img)
+    Np = img.shape
+
+    if axis == 0:  # Horizontal direction
+        X = 2j * np.pi * (np.fft.fftshift(np.arange(Np[1]) / Np[1]) - 0.5)
+        d_img = np.fft.fft(img, axis=1)
+        d_img = d_img * X[np.newaxis,:,np.newaxis]  # Broadcasting works automatically
+        # Apply high-pass filter along horizontal direction
+        d_img = imfilter_high_pass_1d(d_img, ax=1, sigma=high_pass_filter, padding=0, apply_fft=False)
+        d_img = np.fft.ifft(d_img, axis=1)
+
+    elif axis == 1:  # Vertical direction
+        X = 2j * np.pi * (np.fft.fftshift(np.arange(Np[0]) / Np[0]) - 0.5)
+        d_img = np.fft.fft2(img)
+        d_img = d_img * X[:, np.newaxis, np.newaxis]  # Column vector broadcasting
+        # Apply high-pass filter along horizontal direction
+        d_img = imfilter_high_pass_1d(d_img, ax=1, sigma=high_pass_filter, padding=0, apply_fft=False)
+        d_img = np.fft.ifft2(d_img)
+
+    if is_real:
+        d_img = np.real(d_img)
+
+    return d_img
+
+def get_resid_sino(sinogram_model, sinogram, high_pass_filter):
+    
+    resid_sino = sinogram_model - sinogram
+    
+    # apply high pass filter to get rid of phase artefacts
+    resid_sino = imfilter_high_pass_1d(resid_sino, 1, high_pass_filter)
+    
+    return resid_sino
+
+def find_optimal_shift(sinogram_model, sinogram, weights, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False):
+    
+    shift_x = np.zeros(sinogram_model.shape[2], dtype=np.float32)
+    shift_y = np.zeros(sinogram_model.shape[2], dtype=np.float32)
+    
+    resid_sino = get_resid_sino(sinogram_model, sinogram, high_pass_filter)
+    
+    if unwrap_data_method.lower() == 'none':
+        resid_sino = imfilter_high_pass_1d(resid_sino, axis=2, high_pass_filter=high_pass_filter, pad=0)
+       
+    # Horizontal alignment 
+    if align_horizontal:      
+        dX = get_img_grad_filtered(sinogram_model, axis=0, high_pass_filter=high_pass_filter, smooth_win=5)
+        if unwrap_data_method.lower() == 'none':
+            dX = imfilter_high_pass_1d(dX, axis=1, high_pass_filter=high_pass_filter, pad=0)
+        
+        numerator = np.sum(weights * dX * resid_sino, axis=(0, 1))
+        if np.mean(numerator) < 0.01:
+            numerator[:] = 0
+        denominator = np.sum(weights * dX**2, axis=(0, 1)) # sum2 and mean 2????????????????
+        shift_x = -numerator / denominator
+
+    
+    # Vertical alignment
+    if align_vertical:
+        dY = get_img_grad_filtered(sinogram_model, axis=1, high_pass_filter=high_pass_filter, smooth_win=5)
+        if unwrap_data_method.lower() == 'none':
+            dY = imfilter_high_pass_1d(dY, axis=0, high_pass_filter=high_pass_filter, pad=0)
+
+        numerator = np.sum(weights * dY * resid_sino, axis=(0, 1))
+        if np.mean(numerator) < 0.01:
+            numerator[:] = 0
+        denominator = np.sum(weights * dY**2, axis=(0, 1))
+        shift_y = -numerator / denominator
+    
+    # Combine shifts
+    shift = np.stack([shift_x, shift_y], axis=-1)
+
+    # Check for NaNs
+    if np.isnan(shift).any():
+        print("Warning: Alignment failed, estimated shift is NaN")
+
+    # Compute error
+    err = np.sqrt(np.mean((weights * resid_sino)**2, axis=(0, 1))) / MASS
+
+    return shift, err
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

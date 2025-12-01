@@ -1,2 +1,10 @@
 __pycache__
 
+
+# Ignore Jupyter checkpoints
+.ipynb_checkpoints/
+
+# Ignore Jython cache
+.jython_cache/
+
+
