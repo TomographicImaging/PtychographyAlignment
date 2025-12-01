@@ -9,89 +9,146 @@ import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 import tomoconsistency_tools_oriol as tc
+from scipy.signal import windows 
+from scipy.ndimage import convolve
 
 file = '/dls/i13-1/data/2025/cm40629-5/processing/ptycho-tomo_alignment/connor_wright/275019_275199_tomo.nxs'
 
 with h5py.File(file, 'r') as f:
-    img_orig = f['/stack_object'][:,:,0:10]
-    
-method = 'fft_1d'
-method = method.lower()
+    img_orig = np.angle(f['/stack_object'][:,:,0:10])
 
-def wrapToPi(x):
-    """
-    Wrap values to the range [-pi, pi].
-    """
-    return (x + np.pi) % (2 * np.pi) - np.pi
+img_orig_grad = tc.get_phase_gradient_1D(img_orig,ax=1)[83:-83,71:-71,:]
 
-def findresidues(phase):
-    """
-    Compute phase residues for 2D phase unwrapping.
+width_sinogram = img_orig_grad.shape[1]
+high_pass_filter = 0.01
+unwrap_data_method = 'fft_1d'
 
-    Parameters:
-        phase (ndarray): Input phase (real or complex).
+# include the effect of high pass filter into the weights 
+size = np.maximum(3, int(np.ceil(high_pass_filter * width_sinogram)))
+gauss_window = windows.gaussian(size, std = size/6)
+hanning_window = windows.hann(3)
+ker = gauss_window.reshape(-1,1) * hanning_window
 
-    Returns:
-        ndarray: Residues array.
-    """
-    # If input is complex, take its phase angle
-    if not np.isrealobj(phase):
-        phase = np.angle(phase)
+# relevance weights -> remove effect of potential residues / phase jumps 
+ker2 = ker[np.newaxis,:,:]
+convolution_result = convolve((np.abs(img_orig_grad) > 2).astype(np.float32), ker2.astype(np.float32), mode = 'constant', cval = 0.0)
+weights = np.maximum(0,1-convolution_result)
+# weights = windows.tukey(sinogram.shape[1], alpha= 0.2)
 
-    # Compute residues using wrapped differences
-    residues = wrapToPi(phase[1:, :-1, ...] - phase[:-1, :-1, ...])
-    residues += wrapToPi(phase[1:, 1:, ...] - phase[1:, :-1, ...])
-    residues += wrapToPi(phase[:-1, 1:, ...] - phase[1:, 1:, ...])
-    residues += wrapToPi(phase[:-1, :-1, ...] - phase[:-1, 1:, ...])
+sinogram = tc.unwrap_data(img_orig_grad, 'fft_1d', boundary=None)
 
-    residues = residues / (2 * np.pi)
-    return residues
+MASS = np.median(sinogram * np.mean(abs(sinogram), axis=(0,1)))
+# MASS = 0.0557
 
-def unwrap2D_fft(phase_diff, axis, boundary=None, step=0):
-    """
-    Perform 2D phase unwrapping using FFT-based integration.
+x = np.random.randint(20, size=sinogram.shape[-1]) - 10
 
-    Parameters:
-        phase_diff (ndarray): Input phase difference or complex array.
-        axis (int): Axis along which to unwrap.
-        empty_region (optional): Region to remove ramp (default: None).
-        step (int): Step size for gradient calculation (default: 0).
+sinogram_model = np.empty(sinogram.shape)
+for p in range(sinogram.shape[-1]):
+    sinogram_model[:,:,p] = np.roll(sinogram[:,:,p],x[p],axis=1)
 
-    Returns:
-        tuple: (phase, phase_diff, residues)
-    """
-    residues = []
+# sinogram_model is reprojected sinogram
+# sinogram is the original sino (also called "sinogram_shifted" in the MATLAB code)
+shift, err = tc.find_optimal_shift(sinogram_model, sinogram, weights, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False)
 
-    # Compute residues if requested and input is complex
-    if not np.isrealobj(phase_diff):
-        residues = np.abs(findresidues(phase_diff)) > 0.1
+fig, ax1 = plt.subplots()
 
-    # If input is complex, compute phase gradient
-    if not np.isrealobj(phase_diff):
-        phase_diff = tc.get_phase_gradient_1D(phase_diff, ax=axis, step=step)
+ax1.plot(x, 'o')
 
-    # Integrate to get phase
-    phase = np.real(tc.get_img_int_1D(phase_diff, axis))
-
-    # Remove ramp if empty_region provided and axis == 2
-    if boundary is not None and axis == 1:  # MATLAB axis=2 → Python axis=1
-        phase = tc.remove_sinogram_ramp(phase, boundary, -1)
-
-    return phase, phase_diff, residues
-
-sinogram = tc.get_phase_gradient_1D(img_orig,ax=1)
-
-if method == 'fft_1d':
-    # Unwrap the data by FFT along slices
-    img_unwrapped = -unwrap2D_fft(sinogram, axis=1, boundary=None)[0]
-elif method in ['none', 'diff']:
-    # Do nothing
-    pass
-else:
-    raise ValueError("Missing method")
+ax2 = ax1.twinx()
+ax2.plot(shift[:,0], 'x--')
 
 #%%
 
-plt.figure()
-plt.subplot(1,2,1), plt.imshow(np.angle(img_orig[:,:,0]))
-plt.subplot(1,2,2), plt.imshow(img_unwrapped[:,:,0])
+
+# file2 = '/dls/i13-1/data/2025/cm40629-5/processing/ptycho-tomo_alignment/NiTi_Zifan_395414/NiTiZifan_395414.mat'
+# with h5py.File(file2, 'r') as f:
+#     img = f['/stack_object'][:,:,0:10]
+    
+
+# img_orig_grad = tc.get_phase_gradient_1D(img,ax=1) #[300:-1250,400:-1300]
+# sinogram = tc.unwrap_data(img_orig_grad, 'fft_1d', boundary=None)
+
+# plt.figure()
+# plt.plot(x)
+
+
+# method = 'fft_1d'
+# method = method.lower()
+
+# def wrapToPi(x):
+#     """
+#     Wrap values to the range [-pi, pi].
+#     """
+#     return (x + np.pi) % (2 * np.pi) - np.pi
+
+# def findresidues(phase):
+#     """
+#     Compute phase residues for 2D phase unwrapping.
+
+#     Parameters:
+#         phase (ndarray): Input phase (real or complex).
+
+#     Returns:
+#         ndarray: Residues array.
+#     """
+#     # If input is complex, take its phase angle
+#     if not np.isrealobj(phase):
+#         phase = np.angle(phase)
+
+#     # Compute residues using wrapped differences
+#     residues = wrapToPi(phase[1:, :-1, ...] - phase[:-1, :-1, ...])
+#     residues += wrapToPi(phase[1:, 1:, ...] - phase[1:, :-1, ...])
+#     residues += wrapToPi(phase[:-1, 1:, ...] - phase[1:, 1:, ...])
+#     residues += wrapToPi(phase[:-1, :-1, ...] - phase[:-1, 1:, ...])
+
+#     residues = residues / (2 * np.pi)
+#     return residues
+
+# def unwrap2D_fft(phase_diff, axis, boundary=None, step=0):
+#     """
+#     Perform 2D phase unwrapping using FFT-based integration.
+
+#     Parameters:
+#         phase_diff (ndarray): Input phase difference or complex array.
+#         axis (int): Axis along which to unwrap.
+#         empty_region (optional): Region to remove ramp (default: None).
+#         step (int): Step size for gradient calculation (default: 0).
+
+#     Returns:
+#         tuple: (phase, phase_diff, residues)
+#     """
+#     residues = []
+
+#     # Compute residues if requested and input is complex
+#     if not np.isrealobj(phase_diff):
+#         residues = np.abs(findresidues(phase_diff)) > 0.1
+
+#     # If input is complex, compute phase gradient
+#     if not np.isrealobj(phase_diff):
+#         phase_diff = tc.get_phase_gradient_1D(phase_diff, ax=axis, step=step)
+
+#     # Integrate to get phase
+#     phase = np.real(tc.get_img_int_1D(phase_diff, axis))
+
+#     # Remove ramp if empty_region provided and axis == 2
+#     if boundary is not None and axis == 1:  # MATLAB axis=2 → Python axis=1
+#         phase = tc.remove_sinogram_ramp(phase, boundary, -1)
+
+#     return phase, phase_diff, residues
+
+# sinogram = tc.get_phase_gradient_1D(img_orig,ax=1)
+
+# if method == 'fft_1d':
+#     # Unwrap the data by FFT along slices
+#     img_unwrapped = -unwrap2D_fft(sinogram, axis=1, boundary=None)[0]
+# elif method in ['none', 'diff']:
+#     # Do nothing
+#     pass
+# else:
+#     raise ValueError("Missing method")
+    
+
+
+# plt.figure()
+# plt.subplot(1,2,1), plt.imshow(np.angle(img_orig[:,:,0]))
+# plt.subplot(1,2,2), plt.imshow(img_unwrapped[:,:,0])
