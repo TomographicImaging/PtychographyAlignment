@@ -63,7 +63,7 @@ def FBP_astra(sinogram, vol_geom, proj_geom, weights):
                 F *= ramp * weights[ia]
                 filtered_proj = np.real(np.fft.ifft(F))
 
-                filtered[iy, ia, :] = filtered_proj[pad_left:pad_right+Nx]
+                filtered[iy, ia, :] = filtered_proj[pad_left:pad_left+Nx]
             
     filtered = filtered.astype(np.float32)
 
@@ -286,3 +286,41 @@ def plot_alignment(rec, sinogram_shifted, weights_shifted, err,
 
     plt.draw()
     plt.pause(0.001)
+
+
+import numpy as np
+
+def apply_circular_mask(rec, radius=0.99):
+
+    if rec.ndim == 2:
+        H, W = rec.shape
+        rec_reshaped = rec[None, ...] 
+    elif rec.ndim == 3:
+        _, H, W = rec.shape
+        rec_reshaped = rec
+    else:
+        raise ValueError("rec must be 2D or 3D numpy array")
+
+    y_range = (H - 1) / 2
+    x_range = (W - 1) / 2
+
+    Y, X = np.ogrid[-y_range:y_range+1, -x_range:x_range+1]
+
+    dist = np.sqrt(X**2 + Y**2)
+
+    max_dim = max(H, W)
+    radius_applied = radius * (max_dim / 2)
+
+    r = np.sqrt(1 / np.pi)
+
+    mask = (radius_applied - dist).clip(-r, r)
+    mask *= (0.5 * np.pi) / r
+    mask = np.sin(mask)
+    mask = 0.5 + 0.5 * mask  
+
+    masked = rec_reshaped * mask  
+
+    if rec.ndim == 2:
+        return masked[0]
+    else:
+        return masked
