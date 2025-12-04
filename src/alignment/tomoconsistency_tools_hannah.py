@@ -44,7 +44,8 @@ def FBP_astra(sinogram, vol_geom, proj_geom, weights):
     Ny, Nangles, Nx = sinogram.shape
 
     Fsize = max(64, 2**int(np.ceil(np.log2(2*Nx))))
-    pad = (Fsize - Nx) // 2
+    pad_left = (Fsize - Nx) // 2
+    pad_right = Fsize - Nx - pad_left
     freqs = np.fft.fftfreq(Fsize)
     ramp = np.abs(freqs)
 
@@ -56,13 +57,13 @@ def FBP_astra(sinogram, vol_geom, proj_geom, weights):
         for iy in range(start, end):
             for ia in range(Nangles):
                 proj = sinogram[iy, ia, :]
-                proj_padded = np.pad(proj, (pad,), mode='constant')
+                proj_padded = np.pad(proj, (pad_left,pad_right), mode='constant')
 
                 F = np.fft.fft(proj_padded)
                 F *= ramp * weights[ia]
                 filtered_proj = np.real(np.fft.ifft(F))
 
-                filtered[iy, ia, :] = filtered_proj[pad:pad+Nx]
+                filtered[iy, ia, :] = filtered_proj[pad_left:pad_right+Nx]
             
     filtered = filtered.astype(np.float32)
 

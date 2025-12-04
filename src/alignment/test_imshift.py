@@ -9,15 +9,17 @@ import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 import tomoconsistency_tools_oriol as tc
+import tomoconsistency_tools_hannah as tch
 from scipy.signal import windows 
 from scipy.ndimage import convolve
-
+from scipy.ndimage import center_of_mass
+#%%
 file = '/dls/i13-1/data/2025/cm40629-5/processing/ptycho-tomo_alignment/connor_wright/275019_275199_tomo.nxs'
 
 with h5py.File(file, 'r') as f:
-    img_orig = np.angle(f['/stack_object'][:,:,0:10])
+    img_orig = np.angle(f['/stack_object'][:,:,:])
 
-img_orig_grad = tc.get_phase_gradient_1D(img_orig,ax=1)[83:-83,71:-71,:]
+img_orig_grad = tc.get_phase_gradient_1D(img_orig,ax=1) #[83:-83,71:-71,:]
 
 width_sinogram = img_orig_grad.shape[1]
 high_pass_filter = 0.01
@@ -32,23 +34,72 @@ ker = gauss_window.reshape(-1,1) * hanning_window
 # relevance weights -> remove effect of potential residues / phase jumps 
 ker2 = ker[np.newaxis,:,:]
 convolution_result = convolve((np.abs(img_orig_grad) > 2).astype(np.float32), ker2.astype(np.float32), mode = 'constant', cval = 0.0)
-weights = np.maximum(0,1-convolution_result)
+weights_find_shift = np.maximum(0,1-convolution_result)
 # weights = windows.tukey(sinogram.shape[1], alpha= 0.2)
 
 sinogram = tc.unwrap_data(img_orig_grad, 'fft_1d', boundary=None)
+#%%
+sinogram = sinogram[:,0:722,:]
+shift_total = np.zeros((sinogram.shape[-1],2))
 
-MASS = np.median(sinogram * np.mean(abs(sinogram), axis=(0,1)))
-# MASS = 0.0557
+#### tomoconsistency
+iteration_no = 1
 
-x = np.random.randint(20, size=sinogram.shape[-1]) - 10
+Nx = sinogram.shape[1]
+Ny = sinogram.shape[0]
+Nangles = sinogram.shape[2]
 
-sinogram_model = np.empty(sinogram.shape)
-for p in range(sinogram.shape[-1]):
-    sinogram_model[:,:,p] = np.roll(sinogram[:,:,p],x[p],axis=1)
+vol_geom, proj_geom = tch.init_astra(Nx, Ny, Nangles)
 
-# sinogram_model is reprojected sinogram
-# sinogram is the original sino (also called "sinogram_shifted" in the MATLAB code)
-shift, err = tc.find_optimal_shift(sinogram_model, sinogram, weights, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False)
+weights = np.ones(Nangles)
+
+for ii in range(iteration_no):
+    
+    # shift with imdeform_affine_fft
+    sinogram_shifted = tc.imshift_fft(sinogram, shift_total) #(sinogram, shift_total)
+    
+    plt.figure()
+    plt.subplot(121),plt.imshow(sinogram[:,:,0])
+    plt.subplot(122),plt.imshow(sinogram_shifted[:,:,0])
+    
+    # fbp (ASTRA needs shape Ny * Nangle * Nx)
+    sinogram_shifted = sinogram_shifted.transpose((0, 2, 1)) # for astra
+    rec = tch.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights)
+    
+    plt.figure()
+    plt.subplot(131),plt.imshow(rec[:,:,250])
+    plt.subplot(132),plt.imshow(rec[:,250,:])
+    plt.subplot(133),plt.imshow(rec[250,:,:])
+    
+    # centering 
+    # eps = np.finfo(rec.dtype).ep
+    # w = np.sqrt(np.maximum(0,rec)) + eps
+    # [x,y] = center_of_mass(w)
+    # mass = w.sum()
+    
+    # get reprojection
+    sinogram_model = tch.get_projections(rec, vol_geom, proj_geom)
+    
+    plt.figure()
+    plt.subplot(121),plt.imshow(sinogram_shifted[:,:,0])
+    plt.subplot(122),plt.imshow(sinogram_model[:,:,0])
+    
+    MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
+    # MASS = 0.0557
+    
+    # sinogram_model is reprojected sinogram
+    # sinogram is the original sino (also called "sinogram_shifted" in the MATLAB code)
+    shift_total, err = tc.find_optimal_shift(sinogram_model, sinogram_shifted, weights_find_shift, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False)
+
+    plt.figure()
+    plt.plot(shift_total[:,0])
+    plt.plot(shift_total[:,1])
+   
+
+    
+#%%
+
+
 
 fig, ax1 = plt.subplots()
 
@@ -59,6 +110,12 @@ ax2.plot(shift[:,0], 'x--')
 
 #%%
 
+
+x = np.random.randint(20, size=sinogram.shape[-1]) - 10
+
+sinogram_model = np.empty(sinogram.shape)
+for p in range(sinogram.shape[-1]):
+    sinogram_model[:,:,p] = np.roll(sinogram[:,:,p],x[p],axis=1)
 
 # file2 = '/dls/i13-1/data/2025/cm40629-5/processing/ptycho-tomo_alignment/NiTi_Zifan_395414/NiTiZifan_395414.mat'
 # with h5py.File(file2, 'r') as f:
