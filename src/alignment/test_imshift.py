@@ -19,7 +19,7 @@ file = '/dls/i13-1/data/2025/cm40629-5/processing/ptycho-tomo_alignment/connor_w
 with h5py.File(file, 'r') as f:
     img_orig = np.angle(f['/stack_object'][:,:,:])
 
-img_orig_grad = tc.get_phase_gradient_1D(img_orig,ax=1) #[83:-83,71:-71,:]
+img_orig_grad = tc.get_phase_gradient_1D(img_orig,ax=1)[83:-83,71:-71,:]
 
 width_sinogram = img_orig_grad.shape[1]
 high_pass_filter = 0.01
@@ -36,54 +36,80 @@ ker2 = ker[np.newaxis,:,:]
 convolution_result = convolve((np.abs(img_orig_grad) > 2).astype(np.float32), ker2.astype(np.float32), mode = 'constant', cval = 0.0)
 weights_find_shift = np.maximum(0,1-convolution_result)
 # weights = windows.tukey(sinogram.shape[1], alpha= 0.2)
+shift_total = np.zeros((img_orig_grad.shape[-1],2))
+
+img_orig_grad = tc.imshift_generic(img_orig_grad, shift_total, Npix = None, affine_matrix = None, smooth = 0, 
+                                     ROI = None, downsample = 8, interp_method = 'linear', interp_sign = 0)
+
+weights_find_shift = tc.imshift_generic(weights_find_shift, shift_total, Npix = None, affine_matrix = None, smooth = 0, 
+                                     ROI = None, downsample = 8, interp_method = 'linear', interp_sign = 0)
+#%%
 
 sinogram = tc.unwrap_data(img_orig_grad, 'fft_1d', boundary=None)
 #%%
-sinogram = sinogram[:,0:722,:]
-shift_total = np.zeros((sinogram.shape[-1],2))
+# sinogram = sinogram[:,0:722,:]
+
+# % ASTRA needs the reconstruction to be dividable by 32 othewise there
+#     % will be artefacts in left corner 
+#     Npix = ceil(Npix/par.binning);
+#     if isscalar(Npix)
+#         Npix = [Npix, Npix, Nlayers];
+#     elseif length(Npix) == 2
+#         Npix = [Npix, Nlayers];
+#     end
+
 
 #### tomoconsistency
-iteration_no = 1
+iteration_no = 2
 
 Nx = sinogram.shape[1]
 Ny = sinogram.shape[0]
 Nangles = sinogram.shape[2]
+angles = np.linspace(0,180,Nangles)
 
-vol_geom, proj_geom = tch.init_astra(Nx, Ny, Nangles)
+vol_geom, proj_geom = tch.init_astra(Nx, Ny, angles)
 
 weights = np.ones(Nangles)
 
+#%%   
+
+
 for ii in range(iteration_no):
-    
+
     # shift with imdeform_affine_fft
     sinogram_shifted = tc.imshift_fft(sinogram, shift_total) #(sinogram, shift_total)
     
     plt.figure()
     plt.subplot(121),plt.imshow(sinogram[:,:,0])
     plt.subplot(122),plt.imshow(sinogram_shifted[:,:,0])
-    
+
     # fbp (ASTRA needs shape Ny * Nangle * Nx)
     sinogram_shifted = sinogram_shifted.transpose((0, 2, 1)) # for astra
     rec = tch.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights)
     
     plt.figure()
-    plt.subplot(131),plt.imshow(rec[:,:,250])
-    plt.subplot(132),plt.imshow(rec[:,250,:])
-    plt.subplot(133),plt.imshow(rec[250,:,:])
+    plt.subplot(131),plt.imshow(rec[:,:,rec.shape[2]//2])
+    plt.subplot(132),plt.imshow(rec[:,rec.shape[1]//2,:])
+    plt.subplot(133),plt.imshow(rec[rec.shape[0]//2,:,:])
     
     # centering 
     # eps = np.finfo(rec.dtype).ep
     # w = np.sqrt(np.maximum(0,rec)) + eps
     # [x,y] = center_of_mass(w)
     # mass = w.sum()
-    
+
+    rec = tch.apply_circular_mask(rec, radius=0.99)
+
     # get reprojection
     sinogram_model = tch.get_projections(rec, vol_geom, proj_geom)
+    
+    sinogram_shifted = sinogram_shifted.transpose((0, 2, 1))
+    sinogram_model = sinogram_model.transpose((0, 2, 1))
     
     plt.figure()
     plt.subplot(121),plt.imshow(sinogram_shifted[:,:,0])
     plt.subplot(122),plt.imshow(sinogram_model[:,:,0])
-    
+  
     MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
     # MASS = 0.0557
     
@@ -93,7 +119,7 @@ for ii in range(iteration_no):
 
     plt.figure()
     plt.plot(shift_total[:,0])
-    plt.plot(shift_total[:,1])
+    #plt.plot(shift_total[:,1])
    
 
     
@@ -101,12 +127,12 @@ for ii in range(iteration_no):
 
 
 
-fig, ax1 = plt.subplots()
+# fig, ax1 = plt.subplots()
 
-ax1.plot(x, 'o')
+# ax1.plot(x, 'o')
 
-ax2 = ax1.twinx()
-ax2.plot(shift[:,0], 'x--')
+# ax2 = ax1.twinx()
+# ax2.plot(shift[:,0], 'x--')
 
 #%%
 

@@ -231,14 +231,14 @@ def imshift_fft(img, x, y=None, apply_fft=True, weights=None):
     # Compute phase shift for x-axis
     Ng = [1, Np[1], 1]
     shift = np.full(Np, x)
-    xgrid = np.fft.ifftshift(np.arange(-Np[1] // 2, int(np.ceil(Np[1] / 2)))) / Np[1]
+    xgrid = np.fft.ifftshift(np.arange(-(Np[1] // 2), int(np.ceil(Np[1] / 2)))) / Np[1]
     X = np.exp(-2j * np.pi * np.reshape(shift, Np) * np.reshape(xgrid, Ng))
     img = img * X
 
     # Compute phase shift for y-axis
     Ng = [Np[0], 1, 1]
     shift = np.full(Np, y)
-    ygrid = np.fft.ifftshift(np.arange(-Np[0] // 2, int(np.ceil(Np[0] / 2)))) / Np[0]
+    ygrid = np.fft.ifftshift(np.arange(-(Np[0] // 2), int(np.ceil(Np[0] / 2)))) / Np[0]
     Y = np.exp(-2j * np.pi * np.reshape(shift, Np) * np.reshape(ygrid, Ng))
     img = img * Y
 
@@ -295,7 +295,7 @@ def imshift_fft_ax(img, shift, ax, apply_fft=True):
         shift = np.full(Np, shift)
 
     # Create frequency grid
-    grid = np.fft.ifftshift(np.arange(-Npix[ax] // 2, int(np.ceil(Npix[ax] / 2)))) / Npix[ax]
+    grid = np.fft.ifftshift(np.arange(-(Npix[ax] // 2), int(np.ceil(Npix[ax] / 2)))) / Npix[ax]
 
     # Compute phase shift
     X = np.exp(-2j * np.pi * np.reshape(shift, Np) * np.reshape(grid, Ng))
@@ -537,7 +537,7 @@ def get_img_int_1D(grad_array, ax=0):
 
     if ax == 1:  # MATLAB axis=2 → Python axis=1
         grad_array_fft = np.fft.fft(grad_array, axis=1)
-        xgrid = np.fft.ifftshift(np.arange(-Np[1] // 2 + 1, int(np.ceil(Np[1] / 2)))) / Np[1]
+        xgrid = np.fft.ifftshift(np.arange(-(Np[1] // 2), int(np.ceil(Np[1] / 2)))) / Np[1]
 
         # Integration filter
         X = np.exp(2j * np.pi * xgrid)
@@ -550,7 +550,7 @@ def get_img_int_1D(grad_array, ax=0):
 
     elif ax == 0:  # MATLAB axis=1 → Python axis=0
         grad_array_fft = np.fft.fft(grad_array, axis=0)
-        ygrid = np.fft.ifftshift(np.arange(-Np[0] // 2, int(np.ceil(Np[0] / 2)))) / Np[0]
+        ygrid = np.fft.ifftshift(np.arange(-(Np[0] // 2), int(np.ceil(Np[0] / 2)))) / Np[0]
 
         # Integration filter
         Y = np.exp(2j * np.pi * ygrid)
