@@ -1,6 +1,7 @@
 import numpy as np
 import astra
 import matplotlib.pyplot as plt
+from numpy.fft import fft2, ifft2, fft, ifft, ifftshift
 
 def init_astra(Nx, Ny, angles ):
     # TO-DO: add lamino angles, tilt angles, pixel scaling, rotation centre, skewness
@@ -107,19 +108,50 @@ def get_projections(volume, vol_geom, proj_geom):
 
     return sino
 
-from numpy.fft import fft2, ifft2, fft, ifft
+def make_grid(N):
+    start = -int(np.floor(N/2))
+    end   = int(np.ceil(N/2)) - 1
+    return ifftshift(np.arange(start, end + 1)) / N
 
 
-def fft_shift(img, shift):
-    dy, dx = shift
-    ny, nx = img.shape
+def imshift_fft(img, shifts, apply_fft=True):
+    """
+    img:    (Ny, Nx, Nangles)
+    shifts: (Nangles, 2)  # [dx, dy] for each angle
+    """
 
-    ky = np.fft.fftfreq(ny)
-    kx = np.fft.fftfreq(nx)
-    Kx, Ky = np.meshgrid(kx, ky)
+    Ny, Nx, Nang = img.shape
+    dx = shifts[:, 0]
+    dy = shifts[:, 1]
 
-    phase = np.exp(-2j * np.pi * (dx * Kx + dy * Ky))
-    return np.real(ifft2(fft2(img) * phase))
+    if np.all(dx == 0) and np.all(dy == 0):
+        return img.copy()
+
+    real_input = np.isrealobj(img)
+
+    if apply_fft:
+        F = fft2(img, axes=(0, 1))
+    else:
+        F = img.copy()
+
+    xgrid = make_grid(Nx)
+    ygrid = make_grid(Ny)
+
+    phase_x = np.exp(-2j * np.pi * xgrid[None, :, None] * dx[None, None, :])
+    phase_y = np.exp(-2j * np.pi * ygrid[:, None, None] * dy[None, None, :])
+    phase = phase_x * phase_y
+
+    F_shifted = F * phase
+
+    if apply_fft:
+        out = ifft2(F_shifted, axes=(0, 1))
+    else:
+        out = F_shifted
+
+    if real_input:
+        out = out.real
+
+    return out
 
 
 def resample_fft_1d(F, scale):
@@ -142,7 +174,7 @@ def imdeform_affine_fft(img, affine_matrix=None, shift=None):
 
 
     if shift is not None:
-        out = fft_shift(out, shift)
+        out = imshift_fft(out, shift)
 
 
     if affine_matrix is not None:
