@@ -852,33 +852,244 @@ def find_optimal_shift(sinogram_model, sinogram, weights, MASS, high_pass_filter
 
     return shift, err
 
+###################################################################################################################################################
+############################################################ imshift_generic ######################################################################
+###################################################################################################################################################
+
+import numpy as np
+from scipy.ndimage import gaussian_filter, zoom
+from typing import Optional, Tuple
+
+def crop_pad(img: np.ndarray, outsize, fill=0):
+    """
+    Adjust the size of an image by zero-padding or cropping, centered.
+
+    Parameters:
+        img (ndarray): Input image (2D or multi-dimensional).
+        outsize (tuple): Desired output size (rows, cols).
+        fill (scalar): Value to fill padded regions (default = 0).
+
+    Returns:
+        ndarray: Cropped or padded image.
+    """
+    Nin = img.shape
+    if outsize is None or (Nin[0] == outsize[0] and Nin[1] == outsize[1]):
+        return img  # No change needed
+
+    Nout = outsize[:2]
+
+    # Initialize output array with fill value
+    imout_shape = (Nout[0], Nout[1]) + Nin[2:]
+    imout = np.full(imout_shape, fill, dtype=img.dtype)
+
+    # Compute centers
+    center_in = np.array(Nin[:2]) // 2
+    center_out = np.array(Nout) // 2
+
+    # Compute start and end indices for input and output
+    start_out = np.maximum(center_out - center_in, 0)
+    end_out = np.minimum(start_out + Nin[0:2], Nout)
+
+    start_in = np.maximum(center_in - center_out, 0)
+    end_in = np.minimum(start_in + Nout, Nin[0:2])
+
+    # Copy overlapping region
+    imout[start_out[0]:end_out[0], start_out[1]:end_out[1], ...] = \
+        img[start_in[0]:end_in[0], start_in[1]:end_in[1], ...]
+
+    # Preserve complex type if needed
+    if np.iscomplexobj(img):
+        imout = imout.astype(complex)
+
+    return imout
+
+def interpolateFT(im: np.ndarray, outsize):
+    """
+    Interpolates a 2D image using Fourier transform (Dirichlet interpolation).
+    Zero-pads or crops the Fourier spectrum to match the desired output size.
+
+    Parameters:
+        im (ndarray): Input complex or real 2D array.
+        outsize (tuple): Desired output size (rows, cols).
+
+    Returns:
+        ndarray: Interpolated image (complex).
+    """
+    Nin = im.shape
+    Nout = outsize
+
+    # Compute centered FFT
+    imFT = np.fft.fftshift(np.fft.fft2(im))
+
+    # Crop or pad to new size
+    imFT_resized = crop_pad(imFT, Nout)
+
+    # Inverse FFT and scale
+    imout = np.fft.ifft2(np.fft.ifftshift(imFT_resized)) * (Nout[0] * Nout[1]) / (Nin[0] * Nin[1])
+
+    return imout
 
 
+def interpolate_linear(img: np.ndarray, size_out, method='linear'):
+    """
+    Rescale a 2D image or stack of 2D images using interpolation.
+    
+    Parameters:
+        img (ndarray): 2D image or stack (H x W x Nlayers).
+        size_out (tuple): Target size (height, width).
+        method (str): 'linear' (default), 'cubic', or 'nearest'.
+    
+    Returns:
+        ndarray: Rescaled image stack.
+    """
+    Nx, Ny = img.shape[:2]
+    Nlayers = img.shape[2] if img.ndim == 3 else 1
+
+    # If size is unchanged, return original
+    if (Nx, Ny) == tuple(size_out[:2]):
+        return img
+
+    # Map MATLAB method names to SciPy order
+    method_map = {'nearest': 0, 'linear': 1, 'cubic': 3}
+    order = method_map.get(method, 1)
+
+    # Compute zoom factors
+    zoom_factors = (size_out[0] / Nx, size_out[1] / Ny)
+
+    if Nlayers > 1:
+        img_out = np.zeros((int(size_out[0]), int(size_out[1]), int(Nlayers)), dtype=img.dtype)
+        for i in range(Nlayers):
+            img_out[:, :, i] = zoom(img[:, :, i], zoom_factors, order=order)
+    else:
+        img_out = zoom(img, zoom_factors, order=order)
+
+    return img_out
 
 
+def interpolateFT_centered(img: np.ndarray, Np_new, interp_sign: int):
+    """
+    Perform FT interpolation of a 2D or 3D stack using FFT so that the center of mass
+    is preserved after resolution change. Critical for subpixel-accurate up/down sampling.
+
+    Parameters:
+        img (ndarray): Input image (2D or 3D stack).
+        Np_new (tuple): Desired output size (rows, cols).
+        interp_sign (int): +1 or -1, determines extra 0.5 px shift direction.
+
+    Returns:
+        ndarray: Interpolated image (complex or real).
+    """
+    Np = img.shape
+    Np_new = (Np_new[0] + 2, Np_new[1] + 2)  # Add padding for boundary handling
+    is_real = np.isrealobj(img)
+
+    # Compute scaling factor to preserve average intensity
+    scale = (Np_new[0] * Np_new[1]) / (Np[0] * Np[1])
+    downsample = int(np.ceil(np.sqrt(1 / scale)))
+
+    # Pad symmetrically to reduce boundary artifacts
+    img = np.pad(img, ((downsample, downsample), (downsample, downsample)) + ((0, 0),) * (img.ndim - 2),
+                 mode='symmetric')
+
+    # Forward FFT
+    img_ft = np.fft.fft2(img)
+
+    # Apply ±0.5 px shift in Fourier space
+    img_ft = imshift_fft(img_ft, -0.5 * interp_sign, -0.5 * interp_sign, fourier=True)
+
+    # Crop/pad in Fourier space
+    img_ft = np.fft.ifftshift(crop_pad(np.fft.fftshift(img_ft), Np_new))
+
+    # Apply opposite ±0.5 px shift after cropping
+    img_ft = imshift_fft(img_ft, 0.5 * interp_sign, 0.5 * interp_sign, fourier=True)
+
+    # Inverse FFT
+    img_out = np.fft.ifft2(img_ft)
+
+    # Scale to keep average constant
+    img_out *= scale
+
+    # Remove padding
+    img_out = img_out[downsample:-downsample, downsample:-downsample, ...]
+
+    # Preserve real type if original was real
+    if is_real:
+        img_out = np.real(img_out)
+
+    return img_out
 
 
+def imshift_generic(img: np.ndarray,
+                    shift: np.ndarray,
+                    Npix: Optional[Tuple[int, int]] = None,
+                    affine_matrix=None,  # Not implemented yet
+                    smooth: int = 0,
+                    ROI: Optional[Tuple[slice, slice]] = None,
+                    downsample: int = 1,
+                    interp_method: str = 'linear',
+                    interp_sign: int = 0) -> np.ndarray:
+    """
+    Python equivalent of MATLAB's imshift_generic.
+    
+    Parameters:
+        img (ndarray): 2D image or stack.
+        shift (ndarray): Nx2 array of shifts.
+        Npix (tuple): Target size for upsampling (None -> no upsampling).
+        affine_matrix: Not implemented.
+        smooth (int): Pixels to smooth around edges before shifting.
+        ROI (tuple): Region of interest as slices.
+        downsample (int): Downsampling factor (1 -> no downsampling).
+        interp_method (str): 'linear' or 'fft'.
+        interp_sign (int): Sign for FFT-based interpolation.
+    
+    Returns:
+        ndarray: Shifted and processed image.
+    """
+    # Convert uint8 to float
+    if img.dtype == np.uint8:
+        img = img.astype(np.float32) / 255.0
 
+    # Upsample if needed
+    if Npix is not None and (img.shape[0] != Npix[0] or img.shape[1] != Npix[1]):
+        if interp_method == 'linear':
+            img = interpolate_linear(img, Npix)
+        elif interp_method == 'fft':
+            img = interpolateFT(img, Npix)
 
+    is_real = np.isrealobj(img)
 
+    # Apply shift if non-zero
+    if np.any(shift != 0):
+        smooth_axis = 2 - np.argmax(np.any(shift != 0, axis=0))
+        img = smooth_edges(img, smooth, smooth_axis)
+        if img.ndim > 2:
+            if interp_method == 'linear':
+                img = imshift_linear(img, shift)
+            elif interp_method == 'fft':
+                img = imshift_fft(img, shift)
 
+    # Crop ROI
+    if ROI is not None:
+        img = img[ROI[0], ROI[1], ...]
 
+    Np = img.shape
 
+    # Downsample with interpolation
+    if downsample > 1:
+        img = gaussian_filter(img, sigma=[downsample, downsample, 0])
+        # Correct boundary effects
+        correction = gaussian_filter(np.ones(Np[:2], dtype=img.dtype), sigma=[downsample, downsample])
+        img /= correction[..., None] if img.ndim > 2 else correction
+        target_size = tuple(np.ceil(np.array(Np[:2]) / downsample / 2) * 2)
+        if interp_method == 'linear':
+            img = interpolate_linear(img, target_size)
+        elif interp_method == 'fft':
+            img = interpolateFT_centered(smooth_edges(img, 2 * downsample), target_size, interp_sign)
 
+    if is_real:
+        img = np.real(img)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+    return img
 
 
 
