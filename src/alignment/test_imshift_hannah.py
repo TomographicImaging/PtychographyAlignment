@@ -55,7 +55,7 @@ sinogram = tc.unwrap_data(img_orig_grad, 'fft_1d', boundary=None)
 shift_total = np.zeros((sinogram.shape[-1],2))
 
 #### tomoconsistency
-iteration_no = 50
+iteration_no = 1
 
 Nx = sinogram.shape[1]
 Ny = sinogram.shape[0]
@@ -65,16 +65,17 @@ vol_geom, proj_geom = tch.init_astra(Nx, Ny, theta)
 
 weights = np.ones(Nangles)
 
-plot_figures = False
+plot_figures = True
+shift_history = []
 for ii in range(iteration_no):
     t0 = time.time()
     # shift with imdeform_affine_fft
-    sinogram_shifted = tch.imshift_fft(sinogram, shift_total) #(sinogram, shift_total)
+    sinogram_shifted = tc.imshift_fft(sinogram, shift_total) #(sinogram, shift_total)
     
     if plot_figures:
         plt.figure()
-        plt.subplot(121),plt.imshow(sinogram[:,:,0])
-        plt.subplot(122),plt.imshow(sinogram_shifted[:,:,0])
+        plt.subplot(121),plt.imshow(sinogram[:,:,0]), plt.title('Sinogram')
+        plt.subplot(122),plt.imshow(sinogram_shifted[:,:,0]), plt.title('Sinogram shifted')
     
     # fbp (ASTRA needs shape Ny * Nangle * Nx)
     sinogram_shifted = sinogram_shifted.transpose((0, 2, 1)) # for astra
@@ -85,9 +86,10 @@ for ii in range(iteration_no):
     
     if plot_figures:
         plt.figure()
-        plt.subplot(131),plt.imshow(rec_mask[:,:,250])
-        plt.subplot(132),plt.imshow(rec_mask[:,250,:])
-        plt.subplot(133),plt.imshow(rec_mask[250,:,:])
+        plt.subplot(131),plt.imshow(rec_mask[:,:,250]), plt.xlabel('x'), plt.ylabel('y')
+        plt.subplot(132),plt.imshow(rec_mask[:,250,:]), plt.xlabel('x'), plt.ylabel('z')
+        plt.subplot(133),plt.imshow(rec_mask[250,:,:]), plt.xlabel('y'), plt.ylabel('z')
+        plt.tight_layout()
     
     # centering 
     # eps = np.finfo(rec.dtype).ep
@@ -103,9 +105,11 @@ for ii in range(iteration_no):
 
     if plot_figures:
         plt.figure()
-        plt.subplot(121),plt.imshow(sinogram_shifted[:,:,0])
-        plt.subplot(122),plt.imshow(sinogram_model[:,:,0])
-    
+        plt.subplot(131),plt.imshow(sinogram_shifted[:,:,0]), plt.title('Sinogram')
+        plt.subplot(132),plt.imshow(sinogram_model[:,:,0]), plt.title('Sinogram model')
+        plt.subplot(133),plt.imshow(sinogram_shifted[:,:,0]-sinogram_model[:,:,0]), plt.title('Difference')
+        plt.tight_layout()
+
     MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
     # MASS = 0.0557
     
@@ -113,29 +117,44 @@ for ii in range(iteration_no):
     # sinogram is the original sino (also called "sinogram_shifted" in the MATLAB code)
     shift_upd, err = tc.find_optimal_shift(sinogram_model, sinogram_shifted, weights_find_shift, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False)
     step_relaxation = 0.01
-    shift_upd = np.minimum(0.5, abs(shift_upd))*np.sign(shift_upd)*step_relaxation
+    shift_upd = np.minimum(0.5, abs(shift_upd))#*np.sign(shift_upd)*step_relaxation
     
     shift_total = shift_total + shift_upd
-    if plot_figures:
-        plt.figure()
-        plt.plot(shift_total[:,0], 'r', label='Total x shift')
-        plt.plot(shift_total[:,1], 'b', label='Total y shift')
-        plt.plot(shift_upd[:,0], '--r', label='Latest x shift')
-        plt.plot(shift_upd[:,1], '--b', label='Latest y shift')
-        plt.legend()
+    shift_history.append(shift_upd)
+    # if plot_figures:
+    #     plt.figure()
+    #     plt.plot(shift_total[:,0], 'r', label='Total x shift')
+    #     plt.plot(shift_total[:,1], 'b', label='Total y shift')
+    #     plt.plot(shift_upd[:,0], '--r', label='Latest x shift')
+    #     plt.plot(shift_upd[:,1], '--b', label='Latest y shift')
+    #     plt.legend()
 
     print(f'Iteration {str(ii)} time {time.time()-t0}')
 
-if plot_figures is False: 
-    plt.figure()
-    plt.subplot(131),plt.imshow(rec_mask[:,:,250])
-    plt.subplot(132),plt.imshow(rec_mask[:,250,:])
-    plt.subplot(133),plt.imshow(rec_mask[250,:,:])
-    plt.tight_layout()
+# if plot_figures is False: 
+#     plt.figure()
+#     plt.subplot(131),plt.imshow(rec_mask[:,:,250])
+#     plt.subplot(132),plt.imshow(rec_mask[:,250,:])
+#     plt.subplot(133),plt.imshow(rec_mask[250,:,:])
+#     plt.tight_layout()
+plt.show()
+# %%
+shift_history = np.array(shift_history)
+plt.figure(figsize=(10,5))
+for i in range(iteration_no):
+    plt.plot(shift_history[i, :, 0], color='blue', alpha=0.3, label='x')
+    plt.plot(shift_history[i, :, 1], color='red', alpha=0.3, label='y')
+    plt.xlabel("Pixel")
+    plt.ylabel("Shift value")
+plt.show()
 
     
-#%%
-
+#%% Test find optimal shift
+resid_sino = tc.get_resid_sino(sinogram_model, sinogram, high_pass_filter)
+dX = tc.get_img_grad_filtered(sinogram_model, axis=0, high_pass_filter=high_pass_filter, smooth_win=5)
+fig, axs = plt.subplots(1,3, figsize=(10,5))
+axs[0].imshow(resid_sino[:,:,0])
+axs[1].imshow()
 
 
 # fig, ax1 = plt.subplots()

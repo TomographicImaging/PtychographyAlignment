@@ -2,6 +2,7 @@ import numpy as np
 import astra
 import matplotlib.pyplot as plt
 from numpy.fft import fft2, ifft2, fft, ifft, ifftshift
+import warnings
 
 def init_astra(Nx, Ny, angles ):
     # TO-DO: add lamino angles, tilt angles, pixel scaling, rotation centre, skewness
@@ -322,7 +323,7 @@ def plot_alignment(rec, sinogram_shifted, weights_shifted, err,
 
 import numpy as np
 
-def apply_circular_mask(rec, radius=0.99):
+def apply_circular_mask(rec, radius=0.99, apodize=True):
 
     if rec.ndim == 2:
         H, W = rec.shape
@@ -333,22 +334,26 @@ def apply_circular_mask(rec, radius=0.99):
     else:
         raise ValueError("rec must be 2D or 3D numpy array")
 
-    y_range = (H - 1) / 2
-    x_range = (W - 1) / 2
+    if apodize == True:
+        tomogram = np.zeros((H, W, 1), dtype=np.float32)
+        _, mask = apply_3D_apodization(tomogram, rad_apod=0, axial_apod=0, radial_smooth=5)
+    else:
+        y_range = (H - 1) / 2
+        x_range = (W - 1) / 2
 
-    Y, X = np.ogrid[-y_range:y_range+1, -x_range:x_range+1]
+        Y, X = np.ogrid[-y_range:y_range+1, -x_range:x_range+1]
 
-    dist = np.sqrt(X**2 + Y**2)
+        dist = np.sqrt(X**2 + Y**2)
 
-    max_dim = max(H, W)
-    radius_applied = radius * (max_dim / 2)
+        max_dim = max(H, W)
+        radius_applied = radius * (max_dim / 2)
 
-    r = np.sqrt(1 / np.pi)
+        r = np.sqrt(1 / np.pi)
 
-    mask = (radius_applied - dist).clip(-r, r)
-    mask *= (0.5 * np.pi) / r
-    mask = np.sin(mask)
-    mask = 0.5 + 0.5 * mask  
+        mask = (radius_applied - dist).clip(-r, r)
+        mask *= (0.5 * np.pi) / r
+        mask = np.sin(mask)
+        mask = 0.5 + 0.5 * mask  
 
     masked = rec_reshaped * mask  
 
@@ -356,3 +361,88 @@ def apply_circular_mask(rec, radius=0.99):
         return masked[0]
     else:
         return masked
+
+
+def radtap(X, Y, tappix, zerorad):
+    tau = 2.0 * float(tappix)
+    R = np.sqrt(X**2 + Y**2, dtype=np.float32)
+    with np.errstate(invalid='ignore'):
+        taper = 0.5 * (1.0 + np.cos(2.0 * np.pi * (R - zerorad - tau / 2.0) / tau))
+    out = np.zeros_like(R, dtype=np.float32)
+    mask_transition = R <= (zerorad + tau / 2.0)
+    out[mask_transition] = taper[mask_transition]
+    out[R > (zerorad + tau / 2.0)] = 1.0
+    out[R < zerorad] = 0.0
+    return out
+
+def fract_hanning_pad(outputdim, filterdim=None, unmodsize=None):
+    if filterdim is None and unmodsize is None:
+        filterdim = outputdim
+        unmodsize = 0
+    elif filterdim is None or unmodsize is None:
+        raise ValueError("Provide either only outputdim, or outputdim+filterdim+unmodsize.")
+    outputdim = int(outputdim)
+    filterdim = int(filterdim)
+    unmodsize = int(unmodsize)
+    if outputdim < unmodsize:
+        raise ValueError("Output dimension must be smaller or equal to size of unmodulated window")
+    if outputdim < filterdim:
+        raise ValueError("Filter cannot be larger than output size")
+    if unmodsize < 0:
+        warnings.warn("Specified unmodsize < 0, setting unmodsize = 0")
+        unmodsize = 0
+    fd = filterdim
+    N = np.arange(fd, dtype=np.float32)
+    Nc, Nr = np.meshgrid(N, N, indexing='ij')
+    if unmodsize == 0:
+        inner = ((1.0 + np.cos(2.0 * np.pi * Nc / fd)) *
+                 (1.0 + np.cos(2.0 * np.pi * Nr / fd))) / 4.0
+    else:
+        s = int(np.floor((unmodsize - 1) / 2.0))
+        denom = float(fd + 1 - unmodsize)
+        out_cols = 0.5 * (1.0 + np.cos(2.0 * np.pi * (Nc - s) / denom))
+        if s > 0:
+            out_cols[:, :s] = 1.0
+        start_right_0b = s + fd + 2 - unmodsize
+        if start_right_0b < fd:
+            out_cols[:, start_right_0b:] = 1.0
+        out_rows = 0.5 * (1.0 + np.cos(2.0 * np.pi * (Nr - s) / denom))
+        if s > 0:
+            out_rows[:s, :] = 1.0
+        if start_right_0b < fd:
+            out_rows[start_right_0b:, :] = 1.0
+        inner = out_cols * out_rows
+    inner = inner.astype(np.float32)
+    out = np.zeros((outputdim, outputdim), dtype=np.float32)
+    start_1b = int(np.round(outputdim / 2.0 + 1.0 - fd / 2.0))
+    end_1b   = int(np.round(outputdim / 2.0 + 1.0 + fd / 2.0 - 1.0))
+    start_0b = start_1b - 1
+    end_excl = end_1b
+    out[start_0b:end_excl, start_0b:end_excl] = np.fft.fftshift(inner)
+    out = np.fft.fftshift(out)
+    return out
+
+def apply_3D_apodization(tomogram, rad_apod=None, axial_apod=None, radial_smooth=None):
+    if tomogram.ndim != 3:
+        raise ValueError("tomogram must have shape (rows, cols, layers)")
+    rows, cols, layers = tomogram.shape
+    if radial_smooth is None:
+        radial_smooth = min(rows, cols) / 10.0
+    circulo = None
+    out = tomogram
+    if rad_apod is not None:
+        yt = np.arange(-np.floor(rows / 2.0), np.ceil(rows / 2.0), dtype=np.float32)
+        xt = np.arange(-np.floor(cols / 2.0), np.ceil(cols / 2.0), dtype=np.float32)
+        Y, X = np.meshgrid(yt, xt, indexing='ij')
+        tappix = max(float(radial_smooth), 1.0)
+        half_min = min(rows, cols) / 2.0
+        zerorad = int(round(half_min - float(rad_apod) - tappix))
+        taperfunc = radtap(X, Y, tappix, zerorad)
+        circulo = np.float32(1.0 - taperfunc)
+        out = out * circulo[:, :, np.newaxis]
+    if axial_apod is not None and layers > 1:
+        pad = max(0, int(round(layers - 2.0 * float(axial_apod))))
+        filters = fract_hanning_pad(layers, layers, pad)
+        filt = np.fft.ifftshift(filters[:, 0])
+        out = out * filt[np.newaxis, np.newaxis, :]
+    return out, circulo
