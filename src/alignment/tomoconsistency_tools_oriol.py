@@ -1091,6 +1091,162 @@ def imshift_generic(img: np.ndarray,
 
     return img
 
+def xcor(in1, in2):
+    from scipy import signal
+    
+    xcor = signal.correlate(in1, in2, mode='same')
+    shift = np.argmax(xcor)-(xcor.shape[0]/2)
+    return shift, xcor
 
+def remove_linear_ramp(proj_sum):
+    # auxiliary function to subtract linear ramp from sinogram 
+    # it is important to avoid edge ringing and other artefacts when FFT
+    # filtering is applied on the 2D array 
+    
+    Nlayers= proj_sum.shape[0]
+    Nedge = 5; # number of averaged  edge layers 
+    top = np.mean(proj_sum[0:Nedge,:],axis=0)
+    bottom = np.mean(proj_sum[-Nedge:-1,:],axis=0)
+    
+    # xp = np.array([0,Nlayers],dtype=float)
+    # fp = np.array([top,bottom])
+    x = np.arange(1, Nlayers+1, dtype=float)
+    
+    frac = (x / float(Nlayers))[:, None]        # (Nlayers, 1) for broadcasting
+    ramp = top[None, :] + (bottom - top)[None, :] * frac
+
+    # ramp = np.interp(x,xp,fp) 
+    proj_sum =  proj_sum - ramp
+    
+    return proj_sum
+
+def get_y_shifts(projections):
+    proj_sum = np.sum(projections,1)
+    # proj_sum = remove_linear_ramp(proj_sum)
+    
+    shifts = np.zeros(projections.shape[-1])
+    xcor_ar = np.zeros_like(proj_sum)
+    a = np.gradient(proj_sum[:,0])
+    for i in range(projections.shape[-1]):
+        b = np.gradient(proj_sum[:,i])
+        shifts[i], xcor_ar[:,i] = xcor(a,b) #
+    return shifts
+
+def apply_y_shifts(projections, trans):
+    projections_shifted = np.zeros(projections.shape)
+    for i in range(projections.shape[-1]):
+        shift = int(trans[i])
+        projections_shifted[:,:,i] = np.roll(projections[:,:,i],shift, axis=0)
+    return projections_shifted
+
+def projections_align_vertical(projections,projections_grad,weights,x0=0,xf=-1,y0=0,yf=-1):
+    y_trans = get_y_shifts(projections[y0:yf,x0:xf,:])
+    projections_shifted = apply_y_shifts(projections_grad, y_trans)
+
+    min_trans = int(np.floor(np.amin(y_trans)))
+    max_trans = int(np.ceil(np.amax(y_trans)))
+
+    if min_trans < 0:
+        y_to = min_trans
+    else:
+        y_to = -1
+    
+    if max_trans > 0:
+        y_from = max_trans
+    else:
+        y_from = 0
+
+    print("y_from", y_from)
+    print("y_to", y_to)
+
+    projections_shifted = projections_shifted[y_from:y_to,:,:]
+    weights = weights[y_from:y_to,:,:]
+    return projections_shifted, weights, y_trans
+
+
+
+def centering_reconstruction(rec):
+    
+    from scipy.ndimage import center_of_mass
+    
+    eps = np.finfo(rec.dtype).eps
+    w = np.sqrt(np.maximum(0,rec)) + eps
+    x = []
+    y = []
+    rec_center = np.zeros((2))
+    for l in range(w.shape[0]):
+        com = center_of_mass(w[l,:,:])
+        x.append(com[1])
+        y.append(com[0])
+    mass = np.sum(w,axis=(1,2))
+    rec_center[0] = np.mean(x*mass) / np.mean(mass)
+    rec_center[1] = np.mean(y*mass) / np.mean(mass)
+    
+    return rec_center
+
+# def center(X, use_shift=True):
+#     """
+#     Find center of mass of matrix X and optionally calculate variance.
+    
+#     Parameters
+#     ----------
+#     X : ndarray
+#         2D array (image) or stacked images (N x M).
+#     use_shift : bool, optional
+#         If True, CoM is calculated relative to the image center. Default = True.
+    
+#     Returns
+#     -------
+#     pos_x : float
+#         Center of mass in x-direction.
+#     pos_y : float
+#         Center of mass in y-direction.
+#     mass : float
+#         Total sum of X.
+#     mu : ndarray, shape (2,)
+#         [pos_x, pos_y].
+#     sigma : ndarray, shape (2, 2)
+#         Covariance matrix [[xx, xy], [yx, yy]].
+#     """
+    
+#     # Ensure X is a NumPy array
+#     X = np.asarray(X, dtype=float)
+#     X = X.transpose((1,2,0))
+#     N, M = X.shape[:2]
+
+#     # Total mass
+#     mass = np.sum(X, axis=(0,1))
+
+#     # Coordinate grids
+#     xgrid = np.arange(1, M + 1)      # 1..M
+#     ygrid = np.arange(1, N + 1)      # 1..N
+
+#     # Center of mass
+#     pos_x = np.sum(np.sum(X, axis=0) * xgrid[:,np.newaxis], axis=0) / mass
+#     pos_y = np.sum(np.sum(X, axis=1) * ygrid[:,np.newaxis], axis=0) / mass
+
+#     mu = np.array([pos_x, pos_y])
+    
+#     # # Variance (sigma)
+#     # dx = xgrid[None,:] - pos_x[:,None]
+#     # dy = ygrid[None,:] - pos_y[:,None]
+#     # pos_xx = np.sum(np.sum(X, axis=0) * dx**2) / mass
+#     # pos_yy = np.sum(np.sum(X, axis=1) * dy**2) / mass
+
+#     # # Cross terms: compute using matrix multiplication
+#     # pos_xy = np.sum(X @ dx[:, None] * dy[None, :]) / mass
+#     # pos_yx = pos_xy  # symmetric for real-valued images
+
+#     # sigma = np.array([[pos_xx, pos_xy],
+#     #                   [pos_yx, pos_yy]])
+
+#     # Apply shift if requested
+#     if use_shift:
+#         pos_x -= M / 2 + 0.5
+#         pos_y -= N / 2 + 0.5
+
+#     return pos_x, pos_y, mass, mu
+    
+    
 
 
