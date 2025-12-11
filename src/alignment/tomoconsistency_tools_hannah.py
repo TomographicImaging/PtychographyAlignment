@@ -69,7 +69,7 @@ def FBP_astra(sinogram, vol_geom, proj_geom, weights):
             
     filtered = filtered.astype(np.float32)
 
-    sino_id = astra.data3d.create('-sino', proj_geom, filtered)
+    sino_id = astra.data3d.create('-proj3d', proj_geom, filtered)
     vol_id  = astra.data3d.create('-vol',  vol_geom)
 
     cfg = astra.astra_dict('BP3D_CUDA')
@@ -91,7 +91,7 @@ def get_projections(volume, vol_geom, proj_geom):
 
     vol_id = astra.data3d.create('-vol', vol_geom, volume)
 
-    sino_id = astra.data3d.create('-sino', proj_geom)
+    sino_id = astra.data3d.create('-proj3d', proj_geom)
 
     cfg = astra.astra_dict('FP3D_CUDA')
     cfg['ProjectionDataId'] = sino_id

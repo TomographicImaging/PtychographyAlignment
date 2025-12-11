@@ -63,17 +63,21 @@ Nangles = sinogram.shape[2]
 
 vol_geom, proj_geom = tch.init_astra(Nx, Ny, theta)
 
-weights = np.ones(Nangles)
+# weights = np.ones(Nangles)
+
+dtheta = (theta[-1] - theta[0]) / (len(theta) - 1) if len(theta) > 1 else 1.0
+weights = np.full(len(theta), dtheta, dtype=np.float32)
 
 plot_figures = True
 shift_history = []
+
 for ii in range(iteration_no):
     t0 = time.time()
     # shift with imdeform_affine_fft
     sinogram_shifted = tc.imshift_fft(sinogram, shift_total) #(sinogram, shift_total)
     
     if plot_figures:
-        plt.figure()
+        plt.figure(figsize=(10,3))
         plt.subplot(121),plt.imshow(sinogram[:,:,0]), plt.title('Sinogram')
         plt.subplot(122),plt.imshow(sinogram_shifted[:,:,0]), plt.title('Sinogram shifted')
     
@@ -85,7 +89,7 @@ for ii in range(iteration_no):
     rec_mask = tch.apply_circular_mask(rec, 0.9)
     
     if plot_figures:
-        plt.figure()
+        plt.figure(figsize=(10,3))
         plt.subplot(131),plt.imshow(rec_mask[:,:,250]), plt.xlabel('x'), plt.ylabel('y')
         plt.subplot(132),plt.imshow(rec_mask[:,250,:]), plt.xlabel('x'), plt.ylabel('z')
         plt.subplot(133),plt.imshow(rec_mask[250,:,:]), plt.xlabel('y'), plt.ylabel('z')
@@ -104,10 +108,10 @@ for ii in range(iteration_no):
     sinogram_model = sinogram_model.transpose((0,2,1))
 
     if plot_figures:
-        plt.figure()
-        plt.subplot(131),plt.imshow(sinogram_shifted[:,:,0]), plt.title('Sinogram')
-        plt.subplot(132),plt.imshow(sinogram_model[:,:,0]), plt.title('Sinogram model')
-        plt.subplot(133),plt.imshow(sinogram_shifted[:,:,0]-sinogram_model[:,:,0]), plt.title('Difference')
+        plt.figure(figsize=(10,3))
+        plt.subplot(131),plt.imshow(sinogram_shifted[:,:,0]), plt.title('Sinogram'), plt.colorbar()
+        plt.subplot(132),plt.imshow(sinogram_model[:,:,0]), plt.title('Sinogram model'), plt.colorbar()
+        plt.subplot(133),plt.imshow(sinogram_shifted[:,:,0]-sinogram_model[:,:,0]), plt.title('Difference'), plt.colorbar()
         plt.tight_layout()
 
     MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
@@ -131,13 +135,6 @@ for ii in range(iteration_no):
 
     print(f'Iteration {str(ii)} time {time.time()-t0}')
 
-# if plot_figures is False: 
-#     plt.figure()
-#     plt.subplot(131),plt.imshow(rec_mask[:,:,250])
-#     plt.subplot(132),plt.imshow(rec_mask[:,250,:])
-#     plt.subplot(133),plt.imshow(rec_mask[250,:,:])
-#     plt.tight_layout()
-plt.show()
 # %%
 shift_history = np.array(shift_history)
 plt.figure(figsize=(10,5))
@@ -152,10 +149,17 @@ plt.show()
 #%% Test find optimal shift
 resid_sino = tc.get_resid_sino(sinogram_model, sinogram, high_pass_filter)
 dX = tc.get_img_grad_filtered(sinogram_model, axis=0, high_pass_filter=high_pass_filter, smooth_win=5)
-fig, axs = plt.subplots(1,3, figsize=(10,5))
-axs[0].imshow(resid_sino[:,:,0])
-axs[1].imshow()
 
+A = weights * dX * resid_sino
+B = weights * dX**2
+# %%# %%
+plt.figure(figsize=(10,7))
+plt.subplot(221), plt.imshow(resid_sino[:,:,0]), plt.title('Sinogram residual'), plt.colorbar()
+plt.subplot(222), plt.imshow(dX[:,:,0]), plt.title('dX'), plt.colorbar()
+plt.subplot(223), plt.imshow(A[:,:,0]), plt.title('dX * sinogram residual'), plt.colorbar()
+plt.subplot(224), plt.imshow(B[:,:,0]), plt.title('dX^2 * sinogram residual'), plt.colorbar()
+
+plt.tight_layout()
 
 # fig, ax1 = plt.subplots()
 
