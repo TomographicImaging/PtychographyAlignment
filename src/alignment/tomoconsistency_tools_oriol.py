@@ -1163,7 +1163,25 @@ def projections_align_vertical(projections,projections_grad,weights,x0=0,xf=-1,y
     weights = weights[y_from:y_to,:,:]
     return projections_shifted, weights, y_trans
 
-
+def find_cor(projections):
+    
+    from scipy.ndimage import center_of_mass
+    
+    eps = np.finfo(projections.dtype).eps
+    w = np.sqrt(np.maximum(0,projections)) + eps
+    x = []
+    
+    # 0 deg
+    com = center_of_mass(w[:,0,:])
+    x.append(com[1])
+    
+    # 180 deg
+    com = center_of_mass(w[:,-1,:])
+    x.append(com[1])
+    
+    cor = projections.shape[2]/2 - (x[0] + (x[1] - x[0])/2)
+    
+    return cor
 
 def centering_reconstruction(rec):
     
