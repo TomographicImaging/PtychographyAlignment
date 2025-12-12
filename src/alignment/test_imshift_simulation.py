@@ -87,7 +87,7 @@ high_pass_filter = 0.01
 unwrap_data_method = 'fft_1d'
 shift_total = np.zeros((sinogram.shape[-1],2))
 #### tomoconsistency
-iteration_no = 1
+iteration_no = 5
 # weights = np.ones(Nangles)
 dtheta = (theta_rad[-1] - theta_rad[0]) / (len(theta_rad) - 1) if len(theta_rad) > 1 else 1.0
 weights = np.full(len(theta_rad), dtheta, dtype=np.float32)
@@ -97,7 +97,7 @@ shift_history = []
 for ii in range(iteration_no):
     t0 = time.time()
     # shift with imdeform_affine_fft
-    sinogram_shifted = tc.imshift_fft(sinogram, shift_total) #(sinogram, shift_total)
+    # sinogram_shifted = tc.imshift_fft(sinogram, shift_total) #(sinogram, shift_total)
     
     if plot_figures:
         plt.figure(figsize=(10,3))
@@ -106,7 +106,7 @@ for ii in range(iteration_no):
     
     # fbp (ASTRA needs shape Ny * Nangle * Nx)
     sinogram_shifted = sinogram_shifted.transpose((0, 2, 1)) # for astra
-
+    vol_geom, proj_geom = tch.init_astra_vec(Nx, Ny, theta_rad, shift_total) # try applying shifts with astra vector geometry
     rec = tch.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights)
 
     rec = tch.apply_circular_mask(rec, 0.9)
