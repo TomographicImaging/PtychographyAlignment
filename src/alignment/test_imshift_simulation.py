@@ -79,6 +79,8 @@ plt.tight_layout()
 # %%
 # sinogram = np.real(img_orig)
 # sinogram = sinogram[:,0:722,:]
+
+vol_geom, proj_geom = tch.init_astra(Nx, Ny, np.deg2rad(theta))
 sinogram = data.copy()
 weights_find_shift = np.ones_like(sinogram)
 high_pass_filter = 0.01
