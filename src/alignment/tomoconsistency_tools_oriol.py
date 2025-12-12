@@ -479,7 +479,7 @@ def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
         
     # Create slicing indices
     ind = [slice(None)] * d_img.ndim
-    ind[ax] = slice(pad_distance, d_img.shape[ax] - pad_distance - 1)
+    ind[0] = slice(pad_distance, d_img.shape[ax-1] - pad_distance - 1)
     
     # Apply circular shift to the list of slices
     ind = np.roll(ind, ax - 1)
@@ -822,8 +822,8 @@ def find_optimal_shift(sinogram_model, sinogram, weights, MASS, high_pass_filter
             dX = imfilter_high_pass_1d(dX, axis=1, high_pass_filter=high_pass_filter, pad=0)
         
         numerator = np.sum(weights * dX * resid_sino, axis=(0, 1))
-        if np.mean(numerator) < 0.01:
-            numerator[:] = 0
+        # if np.mean(numerator) < 0.01:
+        #     numerator[:] = 0
         denominator = np.sum(weights * dX**2, axis=(0, 1)) # sum2 and mean 2????????????????
         shift_x = -numerator / denominator
 
@@ -835,8 +835,8 @@ def find_optimal_shift(sinogram_model, sinogram, weights, MASS, high_pass_filter
             dY = imfilter_high_pass_1d(dY, axis=0, high_pass_filter=high_pass_filter, pad=0)
 
         numerator = np.sum(weights * dY * resid_sino, axis=(0, 1))
-        if np.mean(numerator) < 0.01:
-            numerator[:] = 0
+        # if np.mean(numerator) < 0.01:
+        #     numerator[:] = 0
         denominator = np.sum(weights * dY**2, axis=(0, 1))
         shift_y = -numerator / denominator
     
@@ -1163,7 +1163,7 @@ def projections_align_vertical(projections,projections_grad,weights,x0=0,xf=-1,y
     weights = weights[y_from:y_to,:,:]
     return projections_shifted, weights, y_trans
 
-def find_cor(projections):
+def find_cor(projections,first=0,last=-1):
     
     from scipy.ndimage import center_of_mass
     
@@ -1172,11 +1172,11 @@ def find_cor(projections):
     x = []
     
     # 0 deg
-    com = center_of_mass(w[:,0,:])
+    com = center_of_mass(w[:,first,:])
     x.append(com[1])
     
     # 180 deg
-    com = center_of_mass(w[:,-1,:])
+    com = center_of_mass(w[:,last,:])
     x.append(com[1])
     
     cor = projections.shape[2]/2 - (x[0] + (x[1] - x[0])/2)
