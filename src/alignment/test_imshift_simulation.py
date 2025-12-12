@@ -1,5 +1,4 @@
 # %%
-
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
@@ -11,7 +10,6 @@ from scipy.ndimage import convolve
 from scipy.ndimage import center_of_mass
 import time
 # %%
-# file = '/dls/i13-1/data/2025/cm40629-5/processing/ptycho-tomo_alignment/connor_wright/275019_275199_tomo.nxs'
 folder = '/mnt/share/ALC_ptychography_alignment/simulations/'
 file = folder + 'sphere_phantom_360_projections.npy'
 data = np.load(file) # = [Nangles, Ny, Nx]
@@ -53,7 +51,6 @@ plt.tight_layout()
 # %% and reconstructed
 weights = np.ones(Nangles)
 vol_geom, proj_geom = tch.init_astra(Nx, Ny, np.deg2rad(theta))
-
 sinogram_shifted = sinogram_shifted.transpose((0, 2, 1)) # transpose for astra
 rec = tch.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights)
 sinogram_shifted = sinogram_shifted.transpose((0,2,1)) # transpose back
@@ -64,27 +61,43 @@ plt.subplot(132),plt.imshow(rec[:,Nx//2,:]), plt.xlabel('x'), plt.ylabel('z')
 plt.subplot(133),plt.imshow(rec[Nx//2,:,:]), plt.xlabel('y'), plt.ylabel('z')
 plt.tight_layout()
 
+# %% also try reconstructing the UNSHIFTED data using astra vector geometry with shifts
+dtheta = (theta[-1] - theta[0]) / (len(theta) - 1) if len(theta) > 1 else 1.0
+weights = np.full(len(theta), dtheta, dtype=np.float32)
+
+data = data.transpose((0, 2, 1)) # for astra
+vol_geom, proj_geom = tch.init_astra_vec(Nx, Ny, theta_rad, shift_simulated)
+rec = tch.FBP_astra(data, vol_geom, proj_geom, weights)
+data = data.transpose((0,2,1)) # transpose back
+
+plt.figure()
+plt.subplot(131),plt.imshow(rec[:,:,Nx//2]), plt.xlabel('x'), plt.ylabel('y')
+plt.subplot(132),plt.imshow(rec[:,Nx//2,:]), plt.xlabel('x'), plt.ylabel('z')
+plt.subplot(133),plt.imshow(rec[Nx//2,:,:]), plt.xlabel('y'), plt.ylabel('z')
+plt.tight_layout()
+
 # %%
 # sinogram = np.real(img_orig)
 # sinogram = sinogram[:,0:722,:]
+
+vol_geom, proj_geom = tch.init_astra(Nx, Ny, np.deg2rad(theta))
 sinogram = data.copy()
 weights_find_shift = np.ones_like(sinogram)
 high_pass_filter = 0.01
 unwrap_data_method = 'fft_1d'
 shift_total = np.zeros((sinogram.shape[-1],2))
 #### tomoconsistency
-iteration_no = 1
+iteration_no = 5
 # weights = np.ones(Nangles)
 dtheta = (theta_rad[-1] - theta_rad[0]) / (len(theta_rad) - 1) if len(theta_rad) > 1 else 1.0
 weights = np.full(len(theta_rad), dtheta, dtype=np.float32)
-
 plot_figures = True
 shift_history = []
 
 for ii in range(iteration_no):
     t0 = time.time()
     # shift with imdeform_affine_fft
-    sinogram_shifted = tc.imshift_fft(sinogram, shift_total) #(sinogram, shift_total)
+    # sinogram_shifted = tc.imshift_fft(sinogram, shift_total) #(sinogram, shift_total)
     
     if plot_figures:
         plt.figure(figsize=(10,3))
@@ -93,7 +106,7 @@ for ii in range(iteration_no):
     
     # fbp (ASTRA needs shape Ny * Nangle * Nx)
     sinogram_shifted = sinogram_shifted.transpose((0, 2, 1)) # for astra
-
+    vol_geom, proj_geom = tch.init_astra_vec(Nx, Ny, theta_rad, shift_total) # try applying shifts with astra vector geometry
     rec = tch.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights)
 
     rec = tch.apply_circular_mask(rec, 0.9)
@@ -135,7 +148,7 @@ for ii in range(iteration_no):
     # shift_upd = np.minimum(0.5, abs(shift_upd))#*np.sign(shift_upd)*step_relaxation
     
     # shift_total = shift_total + shift_upd
-    # shift_history.append(shift_upd)
+    shift_history.append(shift_upd)
     # if plot_figures:
     #     plt.figure()
     #     plt.plot(shift_total[:,0], 'r', label='Total x shift')

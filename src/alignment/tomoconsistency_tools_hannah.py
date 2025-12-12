@@ -23,6 +23,55 @@ def init_astra(Nx, Ny, angles ):
 
     return vol_geom, proj_geom
 
+def init_astra_vec(Nx, Ny, theta_rad, shifts):
+    # Need to add COR
+
+    delta_x = shifts[:,0]
+    delta_y = shifts[:,1]
+    vectors = np.zeros((len(theta_rad), 12), dtype=np.float32)
+    du, dv = 1.0, 1.0 # detector pixel sizes - update this
+
+    for i, th in enumerate(theta_rad):
+        # ray direction
+        vectors[i,0] =  np.sin(th)
+        vectors[i,1] = -np.cos(th)
+        vectors[i,2] =  0
+
+        # u-direction (0,0)->(0,1)
+        u_x = np.cos(th) * du
+        u_y = np.sin(th) * du
+        u_z = 0
+
+        # v-direction (0,0)->(1,0)
+        v_x = 0
+        v_y = 0
+        v_z = dv
+
+        # detector center with shifts
+        vectors[i,3] = delta_x[i] * u_x + delta_y[i] * v_x
+        vectors[i,4] = delta_x[i] * u_y + delta_y[i] * v_y
+        vectors[i,5] = delta_x[i] * u_z + delta_y[i] * v_z
+
+        # u-direction (0,0)->(0,1)
+        vectors[i,6] = u_x
+        vectors[i,7] = u_y
+        vectors[i,8] = u_z
+
+        # v-direction (0,0)->(1,0)
+        vectors[i,9]  = 0
+        vectors[i,10] = 0
+        vectors[i,11] = dv
+
+    proj_geom = astra.create_proj_geom('parallel3d_vec', 
+        Ny,          
+        Nx,          
+        vectors
+    )
+
+    vol_geom = astra.create_vol_geom(Nx, Ny, Ny)
+
+    return vol_geom, proj_geom
+
 def ram_lak_filter(N, d=1.0):
     """
     Ram-Lak filter for FBP
