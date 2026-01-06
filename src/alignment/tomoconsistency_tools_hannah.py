@@ -8,8 +8,8 @@ def init_astra(Nx, Ny, angles ):
     # TO-DO: add lamino angles, tilt angles, pixel scaling, rotation centre, skewness
 
     # Volume
-    Nz = Ny
-    vol_geom = astra.create_vol_geom(Nx, Ny, Nz)
+    Nz = Nx
+    vol_geom = astra.create_vol_geom(Nx, Nz, Ny)
 
     # Projection geometry (3D parallel beam)
     proj_geom = astra.create_proj_geom(
