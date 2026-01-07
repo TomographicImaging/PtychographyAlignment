@@ -102,7 +102,7 @@ if len(Npix) == 2:
 
 
 #%%
-iteration_no = 1
+iteration_no = 5
 
 Nx = sinogram.shape[1]
 Ny = sinogram.shape[0]
@@ -116,7 +116,7 @@ weights = np.full(len(theta), dtheta, dtype=np.float32)
 #%%   
 #### tomoconsistency
 center_reconstruction = False
-plot_figures = True
+plot_figures = False
 
 for ii in range(iteration_no):
     t0 = time.time()
@@ -182,20 +182,20 @@ for ii in range(iteration_no):
     shift_upd = np.minimum(0.5, abs(shift_upd))*np.sign(shift_upd)*step_relaxation
     
     shift_total = shift_total + shift_upd
-    if plot_figures:
-        plt.figure()
-        plt.plot(shift_total[:,0], 'r', label='Total x shift')
-        plt.plot(shift_total[:,1], 'b', label='Total y shift')
-        plt.plot(shift_upd[:,0], '--r', label='Latest x shift')
-        plt.plot(shift_upd[:,1], '--b', label='Latest y shift')
-        plt.legend()
+    plt.figure()
+    plt.plot(shift_total[:,0], 'r', label='Total x shift')
+    plt.plot(shift_total[:,1], 'b', label='Total y shift')
+    plt.plot(shift_upd[:,0], '--r', label='Latest x shift')
+    plt.plot(shift_upd[:,1], '--b', label='Latest y shift')
+    plt.ylim([-0.02, 0.02])
+    plt.legend()
 
     print(f'Iteration {str(ii)} time {time.time()-t0}')
 
 if plot_figures is False: 
     plt.figure()
-    plt.subplot(131),plt.imshow(rec_mask[:,:,250])
-    plt.subplot(132),plt.imshow(rec_mask[:,250,:])
-    plt.subplot(133),plt.imshow(rec_mask[250,:,:])
+    plt.subplot(131),plt.imshow(rec_mask[:,:,rec_mask.shape[2]//2])
+    plt.subplot(132),plt.imshow(rec_mask[:,rec_mask.shape[2]//2,:])
+    plt.subplot(133),plt.imshow(rec_mask[rec_mask.shape[2]//2,:,:])
     plt.tight_layout()
     
