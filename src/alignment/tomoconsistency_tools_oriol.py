@@ -1202,8 +1202,8 @@ def centering_reconstruction(rec):
     
     return rec_center
 
-def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, theta_rad, Npix, optimal_shift, binning, 
-                                  high_pass_filter = 0.0001, unwrap_data_method = 'fft_1d', max_iteration=100, shift_method = 'geometry',
+def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta_rad, Npix, optimal_shift, binning, 
+                                  high_pass_filter = 0.0001, unwrapping = True, unwrap_data_method = 'fft_1d', max_iteration=100, shift_method = 'geometry',
                                   plot_figures = True, min_step_size = 0.05, center_reconstruction = False):
     
     import tomoconsistency_tools_hannah as tch
@@ -1218,18 +1218,20 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
     weights_find_shift = imshift_generic(weights_find_shift, optimal_shift, Npix = None, affine_matrix = None, smooth = 0, 
                                           ROI = None, downsample = binning, interp_method = 'linear', interp_sign = 0)
     
+    if unwrapping:
+        sinogram = unwrap_data(sinogram, 'fft_1d', boundary=None)
+       
     #### tomoconsistency
     shift_history = []
     shift_history.append(optimal_shift)
-    
-    sinogram_astra = sinogram.transpose((0, 2, 1))
-    
+        
     Nx = sinogram.shape[1]
     Ny = sinogram.shape[0]
-    vol_geom, proj_geom = tch.init_astra(Nx, Ny, np.deg2rad(theta))
     
     shift_total = np.zeros((sinogram.shape[-1],2))
     
+    
+
     for ii in range(max_iteration):
         
         print('-- iteration ', str(ii))
@@ -1240,6 +1242,8 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
             sinogram_shifted = imshift_fft(sinogram, shift_total) #(sinogram, shift_total)
             sinogram_astra = sinogram_shifted.transpose((0, 2, 1))
             
+            vol_geom, proj_geom = tch.init_astra(Nx, Ny, theta_rad)
+            
             if plot_figures:
                 plt.figure(figsize=(10,3))
                 plt.subplot(121),plt.imshow(sinogram[:,Nx//2,:]), plt.title('Sinogram'), plt.colorbar()
@@ -1247,12 +1251,17 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
         
         
         elif shift_method == 'geometry':
-            vol_geom, proj_geom = tch.init_astra_vec(Nx, Ny, theta_rad, shift_total) # try applying shifts with astra vector geometry
+            vol_geom, proj_geom = init_astra_vec(Nx, Ny, theta_rad, shift_total) # try applying shifts with astra vector geometry
+            sinogram_astra = sinogram.transpose((0, 2, 1))
+        
+        cor = find_cor(sinogram_astra, first=5)
+        sinogram_astra = np.roll(sinogram_astra,int(cor),axis=2)
         
         # fbp (ASTRA needs shape Ny * Nangle * Nx)
         rec = tch.FBP_astra(sinogram_astra, vol_geom, proj_geom, weights)
     
         rec = tch.apply_circular_mask(rec, 0.9)
+        rec = np.maximum(0,rec)
         
         if plot_figures:
             plt.figure(figsize=(10,3))
@@ -1281,7 +1290,7 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
         sinogram_model_astra = tch.get_projections(rec, vol_geom, proj_geom)
     
         sinogram_model = sinogram_model_astra.transpose((0,2,1))
-    
+        sinogram_astra = sinogram_astra.transpose((0,2,1))
         # if plot_figures:
         #     plt.figure(figsize=(10,3))
         #     plt.subplot(131),plt.imshow(sinogram[:,Nx//2,:]), plt.title('Sinogram'), plt.colorbar()
@@ -1295,7 +1304,8 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
         
         # sinogram_model is reprojected sinogram
         # sinogram is the original sino (also called "sinogram_shifted" in the MATLAB code)
-        shift_upd, err = find_optimal_shift(sinogram_model, sinogram, weights_find_shift, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False)
+        shift_upd, err = find_optimal_shift(sinogram_model, sinogram_astra, weights_find_shift, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False)
+        # shift_upd, err = find_optimal_shift(sinogram_model, sinogram, weights_find_shift, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False)
         step_relaxation = 0.01
         # shift_upd = np.minimum(0.5, abs(shift_upd))#*np.sign(shift_upd)*step_relaxation
         shift_total = shift_total + shift_upd
@@ -1312,6 +1322,56 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
     optimal_shift = optimal_shift + shift_total * binning
         
     return optimal_shift, shift_history
+
+def init_astra_vec(Nx, Ny, theta_rad, shifts):
+    # Need to add COR
+    import astra
+    
+    delta_x = shifts[:,0]
+    delta_y = shifts[:,1]
+    vectors = np.zeros((len(theta_rad), 12), dtype=np.float32)
+    du, dv = 1.0, 1.0 # detector pixel sizes - update this
+
+    for i, th in enumerate(theta_rad):
+        # ray direction
+        vectors[i,0] =  np.sin(th)
+        vectors[i,1] = -np.cos(th)
+        vectors[i,2] =  0
+
+        # u-direction (0,0)->(0,1)
+        u_x = np.cos(th) * du
+        u_y = np.sin(th) * du
+        u_z = 0
+
+        # v-direction (0,0)->(1,0)
+        v_x = 0
+        v_y = 0
+        v_z = dv
+
+        # detector center with shifts
+        vectors[i,3] = delta_x[i] * u_x + delta_y[i] * v_x
+        vectors[i,4] = delta_x[i] * u_y + delta_y[i] * v_y
+        vectors[i,5] = delta_x[i] * u_z + delta_y[i] * v_z
+
+        # u-direction (0,0)->(0,1)
+        vectors[i,6] = u_x
+        vectors[i,7] = u_y
+        vectors[i,8] = u_z
+
+        # v-direction (0,0)->(1,0)
+        vectors[i,9]  = 0
+        vectors[i,10] = 0
+        vectors[i,11] = dv
+
+    proj_geom = astra.create_proj_geom('parallel3d_vec', 
+        Ny,          
+        Nx,          
+        vectors
+    )
+
+    vol_geom = astra.create_vol_geom(Nx, Nx, Ny)
+
+    return vol_geom, proj_geom
 
 # def center(X, use_shift=True):
 #     """

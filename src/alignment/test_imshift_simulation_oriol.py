@@ -168,8 +168,8 @@ optimal_shift = np.zeros((sinogram.shape[-1],2))
 
 for b in range(len(binning)):
     
-    optimal_shift, shift_history = tc.align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, theta_rad, 
-                                                                    Npix, optimal_shift, binning[b], high_pass_filter = high_pass_filter, unwrap_data_method = 'fft_1d')
+    optimal_shift, shift_history = tc.align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta_rad, 
+                                                                    Npix, optimal_shift, binning[b], high_pass_filter = high_pass_filter, unwrapping = False, unwrap_data_method = 'fft_1d')
     
     shift_history = np.array(shift_history)
     plt.figure(figsize=(10,5))
