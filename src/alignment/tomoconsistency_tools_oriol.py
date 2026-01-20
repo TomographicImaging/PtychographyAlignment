@@ -813,13 +813,13 @@ def find_optimal_shift(sinogram_model, sinogram, weights, MASS, high_pass_filter
     resid_sino = get_resid_sino(sinogram_model, sinogram, high_pass_filter)
     
     if unwrap_data_method.lower() == 'none':
-        resid_sino = imfilter_high_pass_1d(resid_sino, axis=2, high_pass_filter=high_pass_filter, pad=0)
+        resid_sino = imfilter_high_pass_1d(resid_sino, ax=2, sigma=high_pass_filter, padding=0)
        
     # Horizontal alignment 
     if align_horizontal:      
         dX = get_img_grad_filtered(sinogram_model, axis=0, high_pass_filter=high_pass_filter, smooth_win=5)
         if unwrap_data_method.lower() == 'none':
-            dX = imfilter_high_pass_1d(dX, axis=1, high_pass_filter=high_pass_filter, pad=0)
+            dX = imfilter_high_pass_1d(dX, ax=2, sigma=high_pass_filter, padding=0)
         
         numerator = np.sum(weights * dX * resid_sino, axis=(0, 1))
         # if np.mean(numerator) < 0.01:
@@ -832,7 +832,7 @@ def find_optimal_shift(sinogram_model, sinogram, weights, MASS, high_pass_filter
     if align_vertical:
         dY = get_img_grad_filtered(sinogram_model, axis=1, high_pass_filter=high_pass_filter, smooth_win=5)
         if unwrap_data_method.lower() == 'none':
-            dY = imfilter_high_pass_1d(dY, axis=0, high_pass_filter=high_pass_filter, pad=0)
+            dY = imfilter_high_pass_1d(dY, ax=0, sigma=high_pass_filter, padding=0)
 
         numerator = np.sum(weights * dY * resid_sino, axis=(0, 1))
         # if np.mean(numerator) < 0.01:
@@ -984,7 +984,7 @@ def interpolateFT_centered(img: np.ndarray, Np_new, interp_sign: int):
     is_real = np.isrealobj(img)
 
     # Compute scaling factor to preserve average intensity
-    scale = (Np_new[0] * Np_new[1]) / (Np[0] * Np[1])
+    scale = np.prod((np.array(Np_new)-2))/np.prod(np.array(Np)[0:2])
     downsample = int(np.ceil(np.sqrt(1 / scale)))
 
     # Pad symmetrically to reduce boundary artifacts
@@ -992,25 +992,25 @@ def interpolateFT_centered(img: np.ndarray, Np_new, interp_sign: int):
                  mode='symmetric')
 
     # Forward FFT
-    img_ft = np.fft.fft2(img)
+    img_ft = np.fft.fft2(img, axes=(1,0))
 
     # Apply ±0.5 px shift in Fourier space
-    img_ft = imshift_fft(img_ft, -0.5 * interp_sign, -0.5 * interp_sign, fourier=True)
+    img_ft = imshift_fft(img_ft, -0.5 * interp_sign, -0.5 * interp_sign, apply_fft=False)
 
     # Crop/pad in Fourier space
     img_ft = np.fft.ifftshift(crop_pad(np.fft.fftshift(img_ft), Np_new))
 
     # Apply opposite ±0.5 px shift after cropping
-    img_ft = imshift_fft(img_ft, 0.5 * interp_sign, 0.5 * interp_sign, fourier=True)
+    img_ft = imshift_fft(img_ft, 0.5 * interp_sign, 0.5 * interp_sign, apply_fft=False)
 
     # Inverse FFT
-    img_out = np.fft.ifft2(img_ft)
+    img_out = np.fft.ifft2(img_ft, axes=(1,0))
 
     # Scale to keep average constant
     img_out *= scale
 
     # Remove padding
-    img_out = img_out[downsample:-downsample, downsample:-downsample, ...]
+    img_out = img_out[1:-1, 1:-1, ...]
 
     # Preserve real type if original was real
     if is_real:
@@ -1076,11 +1076,12 @@ def imshift_generic(img: np.ndarray,
 
     # Downsample with interpolation
     if downsample > 1:
-        img = gaussian_filter(img, sigma=[downsample, downsample, 0])
+        # img = gaussian_filter(img, sigma=[downsample, downsample, 0])
+        img = imgaussfilt3_conv(img, filter_size=[downsample, downsample, 0])
         # Correct boundary effects
-        correction = gaussian_filter(np.ones(Np[:2], dtype=img.dtype), sigma=[downsample, downsample])
+        correction = imgaussfilt3_conv(np.ones(Np[:2], dtype=img.dtype), filter_size=[downsample, downsample, 0])
         img /= correction[..., None] if img.ndim > 2 else correction
-        target_size = tuple(np.ceil(np.array(Np[:2]) / downsample / 2) * 2)
+        target_size = tuple((np.ceil(np.array(Np[:2]) / downsample / 2) * 2).astype(int))
         if interp_method == 'linear':
             img = interpolate_linear(img, target_size)
         elif interp_method == 'fft':
@@ -1090,6 +1091,35 @@ def imshift_generic(img: np.ndarray,
         img = np.real(img)
 
     return img
+
+def imgaussfilt3_conv(img, filter_size):
+    from scipy.signal import convolve
+
+    last_fs = None
+    ker = None
+    ndim = img.ndim
+    for ax in range(ndim):
+        fs = filter_size[min(len(filter_size)-1, ax)]
+        if fs == 0:
+            continue
+        if last_fs != fs:
+            ker = get_kernel(fs, img.dtype)
+            last_fs = fs
+
+        shape = [1] * ndim
+        shape[ax] = ker.size
+        ker_ax = ker.reshape(shape)
+
+        img = convolve(img, ker_ax, mode="same")
+
+    return img
+
+def get_kernel(filter_size, dtype):
+    grid = np.arange(-int(np.ceil(2*filter_size)),
+                      int(np.ceil(2*filter_size)) + 1) / filter_size
+    ker = np.exp(-grid**2)
+    ker /= ker.sum()
+    return ker.astype(dtype)
 
 def xcor(in1, in2):
     from scipy import signal
@@ -1197,6 +1227,24 @@ def centering_reconstruction(rec):
         x.append(com[1])
         y.append(com[0])
     mass = np.sum(w,axis=(1,2))
+    rec_center[0] = np.mean(x*mass) / np.mean(mass)
+    rec_center[1] = np.mean(y*mass) / np.mean(mass)
+    
+    return rec_center
+
+def centering_reconstruction2(rec):    
+    from scipy.ndimage import center_of_mass
+    
+    eps = np.finfo(rec.dtype).eps
+    w = np.sqrt(np.maximum(0,rec)) + eps
+    x = []
+    y = []
+    rec_center = np.zeros((2))
+    for l in range(w.shape[2]):
+        com = center_of_mass(w[:,:,l])
+        x.append(com[0])
+        y.append(com[1])
+    mass = np.sum(w,axis=(0,1))
     rec_center[0] = np.mean(x*mass) / np.mean(mass)
     rec_center[1] = np.mean(y*mass) / np.mean(mass)
     

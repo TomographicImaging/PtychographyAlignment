@@ -3,19 +3,20 @@ import astra
 import matplotlib.pyplot as plt
 from numpy.fft import fft2, ifft2, fft, ifft, ifftshift
 import warnings
+import tomoconsistency_tools_oriol as tc
 
-def init_astra(Nx, Ny, angles ):
+def init_astra(Nx, Ny, angles):
     # TO-DO: add lamino angles, tilt angles, pixel scaling, rotation centre, skewness
 
     # Volume
     Nz = Nx
-    vol_geom = astra.create_vol_geom(Nx, Nz, Ny)
+    vol_geom = astra.create_vol_geom(Nx, Ny, Nz)
 
     # Projection geometry (3D parallel beam)
     proj_geom = astra.create_proj_geom(
         'parallel3d',
-        1.0,  # detector pixel size in x
-        1.0,  # detector pixel size in y   
+        1,  # detector pixel size in x
+        1,  # detector pixel size in y   
         Ny,          
         Nx,          
         angles
@@ -23,7 +24,7 @@ def init_astra(Nx, Ny, angles ):
 
     return vol_geom, proj_geom
 
-def init_astra_vec(Nx, Ny, theta_rad, shifts):
+def init_astra_vec(Nx, Ny, theta_rad, shifts, rot_center_x=0, rot_center_y=0):
     # Need to add COR
 
     delta_x = shifts[:,0]
@@ -52,6 +53,10 @@ def init_astra_vec(Nx, Ny, theta_rad, shifts):
         vectors[i,4] = delta_x[i] * u_y + delta_y[i] * v_y
         vectors[i,5] = delta_x[i] * u_z + delta_y[i] * v_z
 
+        vectors[i,3] -= u_x * rot_center_x + v_x * rot_center_y
+        vectors[i,4] -= u_y * rot_center_x + v_y * rot_center_y
+        vectors[i,5] -= u_z * rot_center_x + v_z * rot_center_y
+
         # u-direction (0,0)->(0,1)
         vectors[i,6] = u_x
         vectors[i,7] = u_y
@@ -68,7 +73,9 @@ def init_astra_vec(Nx, Ny, theta_rad, shifts):
         vectors
     )
 
-    vol_geom = astra.create_vol_geom(Nx, Ny, Ny)
+    Nz = Nx
+
+    vol_geom = astra.create_vol_geom(Nx, Ny, Nz)
 
     return vol_geom, proj_geom
 
@@ -91,7 +98,52 @@ def ram_lak_filter(N, d=1.0):
     
     return filt
 
+
+def FBP_astra2(sinogram, vol_geom, proj_geom, weights=None):
+      
+    if weights is None:
+        weights = np.ones(Nangles, dtype=np.float32)
+
+    Ny, Nangles, Nx = sinogram.shape
+
+    # Fsize = max(64, 2**int(np.ceil(np.log2(2*Nx))))
+    # pad_left = (Fsize - Nx) // 2
+    # pad_right = Fsize - Nx - pad_left
+    Fsize = Nx
+    freqs = np.fft.fftfreq(Fsize)
+    ramp = np.abs(freqs)
+
+    filtered = np.zeros_like(sinogram)
+    for iy in range(Ny):
+        for ia in range(Nangles):
+            proj = sinogram[iy, ia, :]
+            F = np.fft.fft(proj)
+            F *= ramp * weights[ia]
+            filtered_proj = np.real(np.fft.ifft(F))
+            filtered[iy, ia, :] = filtered_proj
+            
+    # filtered = filtered.astype(np.float32)
+
+    sino_id = astra.data3d.create('-proj3d', proj_geom, filtered)
+    vol_id  = astra.data3d.create('-vol',  vol_geom)
+
+    cfg = astra.astra_dict('BP3D_CUDA')
+    cfg['ProjectionDataId'] = sino_id
+    cfg['ReconstructionDataId'] = vol_id
+
+    alg_id = astra.algorithm.create(cfg)
+    astra.algorithm.run(alg_id)
+
+    rec = astra.data3d.get(vol_id)
+
+    astra.algorithm.delete(alg_id)
+    astra.data3d.delete(sino_id)
+    astra.data3d.delete(vol_id)
+
+    return rec  
+
 def FBP_astra(sinogram, vol_geom, proj_geom, weights):
+      
     Ny, Nangles, Nx = sinogram.shape
 
     Fsize = max(64, 2**int(np.ceil(np.log2(2*Nx))))
@@ -157,6 +209,7 @@ def get_projections(volume, vol_geom, proj_geom):
     astra.data3d.delete(sino_id)
 
     return sino
+    
 
 def make_grid(N):
     start = -int(np.floor(N/2))
@@ -224,7 +277,7 @@ def imdeform_affine_fft(img, affine_matrix=None, shift=None):
 
 
     if shift is not None:
-        out = imshift_fft(out, shift)
+        out = tc.imshift_fft(out, shift)
 
 
     if affine_matrix is not None:
@@ -236,7 +289,8 @@ def imdeform_affine_fft(img, affine_matrix=None, shift=None):
             rotation = np.arctan2(U[1, 0], U[0, 0])
             shear = Vt[0, 1] / Vt[0, 0]
         else:
-            sx, sy = affine_matrix[:, 0]
+            sx = affine_matrix[:, 0] 
+            sy = affine_matrix[:, 0]
             shear = affine_matrix[:, 3]
             rotation = affine_matrix[:, 2]
 
