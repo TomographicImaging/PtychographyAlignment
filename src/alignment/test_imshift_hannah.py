@@ -25,6 +25,7 @@ def plot_3axes(array, array_name=''):
     plt.subplot(132),plt.imshow(array[:,array.shape[1]//2,:]), plt.title(array_name), plt.colorbar()
     plt.subplot(133),plt.imshow(array[:,:,array.shape[2]//2]), plt.title(array_name), plt.colorbar()
     plt.tight_layout()
+    plt.show()
 # %%
 # file = '/dls/i13-1/data/2025/cm40629-5/processing/ptycho-tomo_alignment/connor_wright/275019_275199_tomo.nxs'
 folder = '/mnt/share/ALC_ptychography_alignment/Experimental/connor_wright'
@@ -61,7 +62,7 @@ vert_range = np.arange(32,Nlayers-33) # selected vertical layers for alignment
 
 #%%
 
-# get_phase_gradient is after shifts in matlab
+# get_phase_gradient is after shifts in matlab, possibly change this?
 img_orig_grad = tc.get_phase_gradient_1D(img_orig,ax=1)[int(object_ROI[0][0]):int(object_ROI[0][-1]+1),int(object_ROI[1][0]):int(object_ROI[1][-1]+1),:]
 
 plot_3axes(img_orig_grad, 'img_orig')
@@ -104,245 +105,174 @@ plot_3axes(img_orig, 'img_orig')
 
 # %%
 #### tomoconsistency
-iteration_no = 10
+
+def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, Npix, optimal_shift, binning,
+                                  high_pass_filter, unwrap_data_method):
+    
+    # sinogram=sinogram[int(vert_range[0])-1:int(vert_range[-1])+1,:,:] 
+    Nx = sinogram.shape[1]
+    Ny = sinogram.shape[0]
+    Nangles = sinogram.shape[2]
+    
+    Nz = Nx
+    vol_geom = astra.create_vol_geom(Nx, Nz, Ny)
+
+    # Projection geometry (3D parallel beam)
+    proj_geom = astra.create_proj_geom(
+        'parallel3d',
+        1,  # detector pixel size in x
+        1,  # detector pixel size in y   
+        Ny,          
+        Nx,          
+        theta
+    )
+    # vol_geom, proj_geom = tch.init_astra_vec(Nx, Ny, theta, np.zeros((sinogram.shape[-1],2)))
+
+    shift_total = np.zeros((sinogram.shape[-1],2))
+    shift_history = []
+
+    for ii in range(iteration_no):
+        t0 = time.time()
+        # shift with imdeform_affine_fft
+        sinogram_shifted = sinogram
+        sinogram_shifted = tc.imshift_fft(sinogram_shifted, shift_total) #(sinogram, shift_total)
+        
+        if unwrap_data_method is not 'none':
+            sinogram_shifted = tc.unwrap_data(sinogram_shifted, 'fft_1d', boundary=None)
+        sinogram_astra = sinogram_shifted.transpose((0, 2, 1))
+
+        # fbp (ASTRA needs shape Ny * Nangle * Nx)
+        rec = tch.FBP_astra(sinogram_astra, vol_geom, proj_geom, weights)
+        # 
+        # rec = tch.apply_circular_mask(rec, 0.9)
+
+        rec = np.maximum(0, rec)
+
+        if plot_figures:
+            plot_3axes(rec)
+
+        # centering
+        if center_reconstruction:
+            # we need a transposed array to match the matlab shape otherwise it won't shift correctly with imshift_fft
+            # we should try to change this because it's slow
+            rec_t = rec.transpose([1,2,0])
+
+            rec_center = tc.centering_reconstruction2(rec_t)
+            # print(rec_center)
+            
+            if ii == 0:
+                rec_center_0 = [rec_t.shape[0]/2,rec_t.shape[1]/2]
+
+            shift_rec = -0.5*(rec_center - rec_center_0)
+            
+            rec_t = tc.imshift_fft(rec_t, shift_rec[1], shift_rec[0])
+
+            # debugging: check if shift has moved the rec to the centre correctly
+            # rec_center = tc.centering_reconstruction2(rec_t)
+            # print(rec_center)
+            # if plot_figures:
+            #     plot_3axes(rec_t)
+            
+            rec = rec_t.transpose([2,0,1])
+        
+        # get reprojection
+        sinogram_model_astra = tch.get_projections(rec, vol_geom, proj_geom)
+        sinogram_model = sinogram_model_astra.transpose((0,2,1))
+
+        if plot_figures:
+            plt.figure(figsize=(10,3))
+            plt.subplot(131),plt.imshow(sinogram_shifted[:,sinogram_shifted.shape[1]//2,:]), plt.title('Sinogram shifted'), plt.colorbar()
+            plt.subplot(132),plt.imshow(sinogram_model[:,sinogram_model.shape[1]//2,:]), plt.title('Sinogram model'), plt.colorbar()
+            plt.subplot(133),plt.imshow(sinogram_shifted[:,sinogram_shifted.shape[1]//2,:]-sinogram_model[:,sinogram_shifted.shape[1]//2,:]), plt.title('Difference'), plt.colorbar()
+            plt.tight_layout()
+
+        MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
+
+        shift_upd, err = tc.find_optimal_shift(sinogram_model, sinogram_shifted, weights_find_shift, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False)
+        shift_upd[:, 1] -= np.median(shift_upd[:, 1]) # vertical only
+        max_step = min(np.quantile(abs(shift_upd), 0.99), 0.5)
+        if limit_steps == True:
+            shift_upd = np.minimum(max_step, abs(shift_upd))*np.sign(shift_upd)*step_relaxation
+        shift_total = shift_total + shift_upd
+
+        shift_history.append(shift_upd)
+
+        max_update = np.quantile(abs(shift_upd), 0.995)
+        print(f"Maximal step update: {max_update*binning:4.2g} px stopping criterion: {min_step_size:4.2g} px" )
+        if max_update*binning < min_step_size:
+            break
+
+        print(f'Iteration {str(ii)} time {time.time()-t0}')
+
+    optimal_shift = optimal_shift + (shift_total*binning)
+
+    shift_history = np.array(shift_history)
+    plt.figure(figsize=(10,5))
+    for i in range(shift_history.shape[0]):
+        plt.plot(shift_history[i, :, 0], color='blue', alpha=0.3, label='x')
+        plt.plot(shift_history[i, :, 1], color='red', alpha=0.3, label='y')
+        plt.xlabel("Angle")
+        plt.ylabel("Shift value")
+    plt.show()
+
+    plt.figure(figsize=(10,5))
+    for i in range(shift_history.shape[0]):
+        plt.plot(i, np.quantile(abs(np.array(shift_history[i, :, :])), 0.995), 'ok')
+        plt.ylabel("Maximal step update")
+        plt.xlabel("Iteration")
+    plt.show()
+
+    plt.figure(figsize=(10,5))
+    plt.plot(theta, optimal_shift[:,0])
+    plt.plot(theta, tomoconsistency_shifts)
+    plt.ylabel('Horizontal shift value')
+    plt.xlabel('Angle (deg)')
+    plt.legend(['Python shifts', 'Matlab shifts'])
+    plt.grid()
+    plt.show()
+
+    plot_3axes(rec)
+
+    return optimal_shift, err, rec, sinogram_shifted
+
+# %%   
+iteration_no = 200
 step_relaxation = 0.5
 high_pass_filter = 0.01
+min_step_size = 0.01
 unwrap_data_method = 'fft_1d'
 shift_method = 'physical' # physical or geometry
-binning = 8 
-plot_figures = True
+
+plot_figures = False # plot every iteration
 center_reconstruction = True
-limit_steps = False
+limit_steps = True
 
-# sinogram = img_orig_grad.copy()
+bin_levels = [8, 4, 2, 1] 
+
 vert_range = np.arange(32,Nlayers-33)
-
 ROI = (
     slice(int(vert_range[0]) - 1, int(vert_range[-1]) + 1),
     slice(None)
 )
 
-shift_total = np.zeros((img_orig_grad.shape[-1],2))
-sinogram = tc.imshift_generic(img_orig_grad, shift_total, Npix = None, affine_matrix = None, smooth = 5, 
-                                      ROI = ROI, downsample = binning, interp_method = 'fft', interp_sign = 1)
-
-weights_find_shift = np.maximum(0,1-convolution_result)
-weights_find_shift = tc.imshift_generic(weights_find_shift, shift_total, Npix = None, affine_matrix = None, smooth = 0, 
-                                      ROI = ROI, downsample = binning, interp_method = 'linear', interp_sign = 1)
-
-# sinogram=sinogram[int(vert_range[0])-1:int(vert_range[-1])+1,:,:] 
-Nx = sinogram.shape[1]
-Ny = sinogram.shape[0]
-Nangles = sinogram.shape[2]
-# %%
-
-# weights_find_shift = np.ones_like(sinogram)
-# sinogram = sinogram.reshape(Ny//binning, binning, Nx//binning, binning, Nangles).mean(axis=(1, 3))
-# sinogram_astra = sinogram.transpose((0, 2, 1))
-# weights_find_shift = weights_find_shift.reshape(Ny//binning, binning, Nx//binning, binning, Nangles).mean(axis=(1, 3))
+optimal_shift = np.zeros((img_orig_grad.shape[-1],2))
 
 dtheta = (theta[-1] - theta[0]) / (len(theta) - 1) if len(theta) > 1 else 1.0
 weights = np.full(len(theta), dtheta, dtype=np.float32)
-Nz = Nx
-vol_geom = astra.create_vol_geom(Nx, Nz, Ny)
 
-# Projection geometry (3D parallel beam)
-proj_geom = astra.create_proj_geom(
-    'parallel3d',
-    1,  # detector pixel size in x
-    1,  # detector pixel size in y   
-    Ny,          
-    Nx,          
-    theta
-)
-# vol_geom, proj_geom = tch.init_astra_vec(Nx, Ny, theta, np.zeros((sinogram.shape[-1],2)))
+for binning in bin_levels:
 
-shift_total = np.zeros((sinogram.shape[-1],2))
-shift_history = []
-shift_history.append(shift_total)
+    sinogram = tc.imshift_generic(img_orig_grad, optimal_shift, Npix = None, affine_matrix = None, smooth = 5, 
+                                        ROI = ROI, downsample = binning, interp_method = 'fft', interp_sign = 1)
 
-for ii in range(iteration_no):
-    t0 = time.time()
-    # shift with imdeform_affine_fft
-    sinogram_shifted = sinogram
-    sinogram_shifted = tc.imshift_fft(sinogram_shifted, shift_total) #(sinogram, shift_total)
-    
-    if unwrap_data_method is not 'none':
-        sinogram_shifted = tc.unwrap_data(sinogram_shifted, 'fft_1d', boundary=None)
-    sinogram_astra = sinogram_shifted.transpose((0, 2, 1))
+    weights_find_shift = np.maximum(0,1-convolution_result)
+    weights_find_shift = tc.imshift_generic(weights_find_shift, optimal_shift, Npix = None, affine_matrix = None, smooth = 0, 
+                                        ROI = ROI, downsample = binning, interp_method = 'linear', interp_sign = 1)
 
-    # fbp (ASTRA needs shape Ny * Nangle * Nx)
-    rec = tch.FBP_astra(sinogram_astra, vol_geom, proj_geom, weights)
-    # 
-    rec = tch.apply_circular_mask(rec, 0.9)
+    optimal_shift, err, rec, sinogram_shifted = align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, Npix, optimal_shift, binning,
+                                  high_pass_filter, unwrap_data_method)
 
-    rec = np.maximum(0, rec)
 
-    if plot_figures:
-        plot_3axes(rec)
-
-    # centering
-    if center_reconstruction:
-        # we need a transposed array to match the matlab shape otherwise it won't shift correctly with imshift_fft
-        rec_t = rec.transpose([1,2,0])
-
-        rec_center = centering_reconstruction2(rec_t)
-        print(rec_center)
-        
-        if ii == 0:
-            rec_center_0 = [rec_t.shape[0]/2,rec_t.shape[1]/2]
-
-        shift_rec = -(rec_center - rec_center_0)
-        
-        rec_t = tc.imshift_fft(rec_t, shift_rec[0], shift_rec[1])
-
-        # optional: check if shift has moved it to the centre correctly
-        rec_center = tc.centering_reconstruction2(rec_t)
-        print(rec_center)
-        if plot_figures:
-            plot_3axes(rec)
-
-    
-    
-    # centering 
-    # eps = np.finfo(rec.dtype).ep
-    # w = np.sqrt(np.maximum(0,rec)) + eps
-    # [x,y] = center_of_mass(w)
-    # mass = w.sum()
-    
-    # get reprojection
-    sinogram_model_astra = tch.get_projections(rec, vol_geom, proj_geom)
-    sinogram_model = sinogram_model_astra.transpose((0,2,1))
-
-    if plot_figures:
-        plt.figure(figsize=(10,3))
-        plt.subplot(131),plt.imshow(sinogram_shifted[:,sinogram_shifted.shape[1]//2,:]), plt.title('Sinogram shifted'), plt.colorbar()
-        plt.subplot(132),plt.imshow(sinogram_model[:,sinogram_model.shape[1]//2,:]), plt.title('Sinogram model'), plt.colorbar()
-        plt.subplot(133),plt.imshow(sinogram_shifted[:,sinogram_shifted.shape[1]//2,:]-sinogram_model[:,sinogram_shifted.shape[1]//2,:]), plt.title('Difference'), plt.colorbar()
-        plt.tight_layout()
-
-    MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
-    # MASS = 0.0557
-    
-    # sinogram_model is reprojected sinogram
-    # sinogram is the original sino (also called "sinogram_shifted" in the MATLAB code)
-    shift_upd, err = tc.find_optimal_shift(sinogram_model, sinogram_shifted, weights_find_shift, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False)
-    shift_upd[:, 1] -= np.median(shift_upd[:, 1]) # vertical only
-    max_step = min(np.quantile(abs(shift_upd), 0.99), 0.5)
-    if limit_steps == True:
-        shift_upd = np.minimum(max_step, abs(shift_upd))*np.sign(shift_upd)*step_relaxation
-    shift_total = shift_total + shift_upd
-
-    shift_history.append(shift_upd)
-    print(f'Iteration {str(ii)} time {time.time()-t0}')
-
-if plot_figures is False:
-    plot_3axes(rec)
-
-shift_history = np.array(shift_history)
-plt.figure(figsize=(10,5))
-for i in range(iteration_no+1):
-    plt.plot(shift_history[i, :, 0], color='blue', alpha=0.3, label='x')
-    plt.plot(shift_history[i, :, 1], color='red', alpha=0.3, label='y')
-    plt.xlabel("Pixel")
-    plt.ylabel("Shift value")
-plt.show()
-
-plt.figure(figsize=(10,5))
-plt.plot(theta, shift_total[:,0])
-
-plt.ylabel('Horizontal shift value')
-plt.xlabel('Angle (deg)')
-plt.legend(['Simulated shifts', 'Calculated shifts'])
-plt.grid()
-    
-
-# %% TESTING
-# Volume
-Nz = Nx
-vol_geom = astra.create_vol_geom(Nx, Nz, Ny)
-
-# Projection geometry (3D parallel beam)
-proj_geom = astra.create_proj_geom(
-    'parallel3d',
-    1,  # detector pixel size in x
-    1,  # detector pixel size in y   
-    Ny,          
-    Nx,          
-    theta
-)
-rec_astra = tch.FBP_astra(sinogram_astra, vol_geom, proj_geom, weights)
-
-rec = rec_astra.transpose([1,2,0])
-# rec = tch.apply_circular_mask(rec, 0.99)
-
-rec = np.maximum(0, rec)
-plot_3axes(rec)
-rec_center_0 = [rec.shape[0]/2,rec.shape[1]/2]
-
-print(rec_center_0)
-rec_center = centering_reconstruction2(rec)
-print(rec_center)
-shift_rec = -(rec_center - rec_center_0)
-print(shift_rec)
-rec = tc.imshift_fft(rec, shift_rec[1], shift_rec[0])
-rec_center = centering_reconstruction2(rec)
-print(rec_center)
-plot_3axes(rec)
-rec = rec.transpose([2,0,1])
-sinogram_model_astra = tch.get_projections(rec, vol_geom, proj_geom)
-sinogram_model = sinogram_model_astra.transpose((0,2,1))
-plt.figure()
-plt.imshow(sinogram_model[:,:,90]), plt.colorbar()
 # %%
 
-
-plot_3axes(rec)
-plot_3axes(rec_shift)
-
-# %%
-# sinogram = tc.imshift_generic(img_orig_grad, shift_total, Npix = None, affine_matrix = None, smooth = 5, 
-#                                       ROI = ROI, downsample = binning, interp_method = 'fft', interp_sign = 1)
-img = img_orig_grad
-shift = shift_total
-Npix = img_orig_grad.shape
-affine_matrix = None
-smooth = 5
-ROI = ROI = (
-    slice(int(vert_range[0]) - 1, int(vert_range[-1]) + 1),
-    slice(None)
-)
-downsample = binning
-interp_method = 'fft'
-interp_sign = 1
-
-# Upsample if needed
-if Npix is not None and (img.shape[0] != Npix[0] or img.shape[1] != Npix[1]):
-    if interp_method == 'linear':
-        img = tc.interpolate_linear(img, Npix)
-    elif interp_method == 'fft':
-        img = tc.interpolateFT(img, Npix)
-
-is_real = np.isrealobj(img)
-
-# Crop ROI
-if ROI is not None:
-    img = img[ROI[0], ROI[1], ...]
-Np = img.shape
-
-
-
-# img = tc.gaussian_filter(img, sigma=[downsample, downsample, 0])
-img = imgaussfilt3_conv(img, filter_size=[downsample, downsample, 0])
-# Correct boundary effects
-# correction = tc.gaussian_filter(np.ones(Np[:2], dtype=img.dtype), sigma=[downsample, downsample])
-correction = imgaussfilt3_conv(np.ones(Np[:2], dtype=img.dtype), filter_size=[downsample, downsample, 0])
-img /= correction[..., None] if img.ndim > 2 else correction
-
-target_size = tuple((np.ceil(np.array(Np[:2]) / downsample / 2) * 2).astype(int))
-
-
-if interp_method == 'linear':
-    img = tc.interpolate_linear(img, target_size)
-elif interp_method == 'fft':
-    img = tc.interpolateFT_centered(tc.smooth_edges(img, 2 * downsample), target_size, interp_sign)
+   
