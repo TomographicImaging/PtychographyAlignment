@@ -65,6 +65,8 @@ stop = 180
 step = 0.5
 include_last_angle = False
 
+jitter_y = False
+
 angle_set = np.linspace(start, stop, num=int((stop-start) / step), endpoint=include_last_angle)
 xray_image_set = np.zeros((len(angle_set), gvxr.getDetectorNumberOfPixels()[1], gvxr.getDetectorNumberOfPixels()[0]))
 delta_x = np.zeros(len(angle_set))
@@ -114,7 +116,10 @@ if generate_noise:
 
         delta_x[i] = int(thermal_x + random_walk_x + osc_x) # int for now
         delta_y[i] = int(thermal_y + random_walk_y + osc_y) # int for now
-
+    
+    if jitter_y == False:
+        delta_y = np.zeros(len(angle_set))
+    
     jitter_real_x = np.load('delta_x_1D_fullNth_1it.npy')
     jitter_real_y = np.load('delta_y_1D_fullNth_1it.npy')
     plt.plot(delta_x)
@@ -206,10 +211,11 @@ show2D([recon, recon_shifted])
 
 folder = '/mnt/share/ALC_ptychography_alignment/simulations/'
 folder = 'output_data/'
-np.save(folder+'sphere_phantom_360_projections.npy', xray_image_set)
-np.save(folder+'sphere_phantom_360_shifts_x.npy', shifts_x)
-np.save(folder+'sphere_phantom_360_shifts_y.npy', shifts_y)
-np.save(folder+'sphere_phantom_360_theta.npy', angle_set)
+np.save(folder+'sphere_phantom_360_projections_noy.npy', xray_image_set)
+np.save(folder+'sphere_phantom_360_shifts_x_noy.npy', shifts_x)
+np.save(folder+'sphere_phantom_360_shifts_y_noy.npy', shifts_y)
+np.save(folder+'sphere_phantom_360_theta_noy.npy', angle_set)
 
 # %%
-np.save(folder+'sphere_phantom_360_projections_shifted.npy', xray_image_set_shifted)
+np.save(folder+'sphere_phantom_360_projections_noy_shifted.npy', xray_image_set_shifted)
+# %%
