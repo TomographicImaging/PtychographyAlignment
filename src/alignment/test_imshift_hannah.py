@@ -11,6 +11,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import tomoconsistency_tools_oriol as tc
 import tomoconsistency_tools_hannah as tch
+from scipy.optimize import fmin
 from utilities import utils_tomo
 from scipy.signal import windows 
 from scipy.ndimage import convolve
@@ -109,7 +110,6 @@ plot_3axes(img_orig, 'img_orig')
 def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, Npix, optimal_shift, binning,
                                   high_pass_filter, unwrap_data_method):
     
-    # sinogram=sinogram[int(vert_range[0])-1:int(vert_range[-1])+1,:,:] 
     Nx = sinogram.shape[1]
     Ny = sinogram.shape[0]
     Nangles = sinogram.shape[2]
@@ -130,12 +130,13 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
 
     shift_total = np.zeros((sinogram.shape[-1],2))
     shift_history = []
+    shift_velocity = np.zeros((Nangles, 2))
 
     for ii in range(iteration_no):
         t0 = time.time()
         # shift with imdeform_affine_fft
         sinogram_shifted = sinogram
-        sinogram_shifted = tc.imshift_fft(sinogram_shifted, shift_total) #(sinogram, shift_total)
+        sinogram_shifted = tc.imshift_fft(sinogram_shifted, shift_total)
         
         if unwrap_data_method is not 'none':
             sinogram_shifted = tc.unwrap_data(sinogram_shifted, 'fft_1d', boundary=None)
@@ -189,14 +190,26 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
         MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
 
         shift_upd, err = tc.find_optimal_shift(sinogram_model, sinogram_shifted, weights_find_shift, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False)
-        shift_upd[:, 1] -= np.median(shift_upd[:, 1]) # vertical only
-        max_step = min(np.quantile(abs(shift_upd), 0.99), 0.5)
-        if limit_steps == True:
-            shift_upd = np.minimum(max_step, abs(shift_upd))*np.sign(shift_upd)*step_relaxation
-        shift_total = shift_total + shift_upd
+        
 
+        # Limit the step size to 0.5 pixels and apply a step relaxation factor
+        if limit_steps == True:
+            # max_step = min(np.quantile(abs(shift_upd), 0.995), 0.5)
+            shift_upd = np.minimum(0.5, abs(shift_upd))*np.sign(shift_upd)*step_relaxation
+        
+        # update the total shift position
         shift_history.append(shift_upd)
 
+        # Use momentum to accelerate convergence
+        if momentum_acceleration == True and ii > 2:
+            shift_upd, shift_velocity = add_momentum_horizontal(shift_history, shift_velocity)
+
+        # Then apply a median shift in the vertical direction only
+        shift_upd[:, 1] -= np.median(shift_upd[:, 1])
+
+        shift_total = shift_total + shift_upd
+
+        # Check the maximal step update and stop if it's below the stopping criterion
         max_update = np.quantile(abs(shift_upd), 0.995)
         print(f"Maximal step update: {max_update*binning:4.2g} px stopping criterion: {min_step_size:4.2g} px" )
         if max_update*binning < min_step_size:
@@ -222,32 +235,71 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
         plt.xlabel("Iteration")
     plt.show()
 
-    plt.figure(figsize=(10,5))
-    plt.plot(theta, optimal_shift[:,0])
-    plt.plot(theta, tomoconsistency_shifts)
-    plt.ylabel('Horizontal shift value')
-    plt.xlabel('Angle (deg)')
-    plt.legend(['Python shifts', 'Matlab shifts'])
-    plt.grid()
-    plt.show()
-
-    plot_3axes(rec)
-
     return optimal_shift, err, rec, sinogram_shifted
 
-# %%   
-iteration_no = 200
+def add_momentum_horizontal(shift_history, velocity_map):
+
+    # get a subset of the shift history as a numpy array
+    momentum_memory = 2
+    shift_memory = np.stack(shift_history[-(momentum_memory+1):], axis=0)
+    
+    # this is the current shift we want to update with momentum
+    shift = shift_memory[-1].copy()
+
+    # only apply momentum in horizontal direction
+    axis = 0 
+    
+    if np.all(shift[:, axis] == 0):
+        return shift, velocity_map
+    
+    # find correlation between current shift and previous shifts in the horizontal direction
+    C = np.zeros(momentum_memory)
+    for ii in range(momentum_memory):
+        prev_shift = shift_memory[ii][:, axis]
+        if np.all(prev_shift == 0):
+            C[ii] = 0
+        else:
+            # correlation coefficient
+            C[ii] = np.corrcoef(shift[:, axis], prev_shift)[0,1]
+
+    # minimise the difference between the current shift and the exponentially decayed previous shifts
+    def loss(x):
+        return np.linalg.norm(C - np.exp(-x * np.arange(momentum_memory, 0, -1)))
+
+    decay = fmin(loss, 0.0, disp = False)[0]
+
+    # scaling parameters
+    alpha = 2.0
+    gain = 0.5
+    friction = np.clip(alpha * decay, 0, 1)
+
+    # update velocity map
+    velocity_map[:,axis] = (1 - friction) * velocity_map[:, axis] + shift[:, axis]
+
+    # update shift using velocity map
+    shift[:, axis] = (1 - gain) * shift[:, axis] + gain * velocity_map[:, axis]
+
+    return shift, velocity_map
+    
+
+# %%
+import time
+t0 = time.time()
+
+iteration_no = 5
 step_relaxation = 0.5
 high_pass_filter = 0.01
 min_step_size = 0.01
 unwrap_data_method = 'fft_1d'
 shift_method = 'physical' # physical or geometry
 
-plot_figures = False # plot every iteration
+plot_figures = True # plot every iteration
 center_reconstruction = True
 limit_steps = True
+momentum_acceleration = True
 
 bin_levels = [8, 4, 2, 1] 
+bin_levels = [4]
 
 vert_range = np.arange(32,Nlayers-33)
 ROI = (
@@ -271,8 +323,19 @@ for binning in bin_levels:
 
     optimal_shift, err, rec, sinogram_shifted = align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, Npix, optimal_shift, binning,
                                   high_pass_filter, unwrap_data_method)
+    
+    plt.figure(figsize=(10,5))
+    plt.plot(theta, optimal_shift[:,0])
+    plt.plot(theta, tomoconsistency_shifts)
+    plt.ylabel('Horizontal shift value')
+    plt.xlabel('Angle (deg)')
+    plt.legend(['Python shifts', 'Matlab shifts'])
+    plt.grid()
+    plt.show()
 
+    plot_3axes(rec)
 
+print(f'Total time: {time.time() - t0:4.2f} seconds')
 # %%
 
    
