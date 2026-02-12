@@ -75,7 +75,7 @@ def init_astra_vec(Nx, Ny, theta_rad, shifts, rot_center_x=0, rot_center_y=0):
 
     Nz = Nx
 
-    vol_geom = astra.create_vol_geom(Nx, Ny, Nz)
+    vol_geom = astra.create_vol_geom(Nx, Nz, Ny)
 
     return vol_geom, proj_geom
 

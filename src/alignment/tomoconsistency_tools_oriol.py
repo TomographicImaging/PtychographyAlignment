@@ -183,9 +183,188 @@ def get_img_grad(img, axis=None, split=1):
     return dX, dY
 
 
+def imshift_fft_2dax(img, x, y=None, axis=(1, 0), apply_fft=True, weights=None):
+    """
+    Apply subpixel shift using Fourier domain phase multiplication.
+    img can be in any order - specify the axes to apply shifts with the axis parameter
+
+    Parameters:
+        img (ndarray): Input image stack (can be complex).
+        x (float or ndarray): Shift in x-direction (columns) or Nx2 array.
+        y (float or ndarray): Shift in y-direction (rows).
+        apply_fft (bool): If False, assume img is already in Fourier space.
+        weights (ndarray or None): Optional weighting array to reduce noise.
+        axis (tuple): Tuple of axes (ax_x, ax_y) to apply shifts x and y, default 
+            x is applied to 1 and y is applied to 0.
+
+    Returns:
+        ndarray: Shifted image stack.
+    """
+    import numpy as np
+    
+    # Handle input arguments
+    if y is None:
+        y = x[:, 1]
+        x = x[:, 0]
+
+    if weights is not None and not np.isscalar(weights):
+        eps_ = 1e2 * np.finfo(img.dtype).eps
+        weights = np.maximum(eps_, weights)
+
+    if np.all(x == 0) and np.all(y == 0):
+        return img
+
+    # Apply weights before FFT if provided
+    if weights is not None and not np.isscalar(weights) and apply_fft:
+        img = img * weights
+
+    # Optimize for single-axis shifts
+    if np.all(x == 0):
+        return imshift_fft_ax(img, y, ax=axis[1], apply_fft=apply_fft)
+    elif np.all(y == 0):
+        return imshift_fft_ax(img, x, ax=axis[0], apply_fft=apply_fft)
+
+    # Full 2D FFT-based shift
+    real_img = np.isrealobj(img)
+    Np = img.shape
+
+    if apply_fft:
+        img = np.fft.fft2(img, axes=axis) # this was math.fft2_partial
+
+    all_axes = set(range(len(Np)))
+    ax_z = list(all_axes - set(axis))[0]
+
+    # Compute phase shift for x-axis
+    ax_x = axis[0]
+    Ng = [1] * img.ndim
+    Ng[ax_x] = Np[ax_x]
+
+    if np.isscalar(x):
+        shift = np.full(Np, x)
+    else:
+        shape = [1] * img.ndim
+        shape[ax_z] = len(x)
+        shift = np.broadcast_to(x.reshape(shape), Np)
+
+    xgrid = np.fft.ifftshift(np.arange(-(Np[ax_x]//2), int(np.ceil(Np[ax_x]/2)))) / Np[ax_x]
+    xgrid = xgrid.reshape(Ng)
+    X = np.exp(-2j * np.pi * shift * xgrid)
+    img *= X
+
+    # Compute phase shift for y-axis
+    ax_y = axis[1]
+    Ng = [1] * img.ndim
+    Ng[ax_y] = Np[ax_y]
+    
+    if np.isscalar(y):
+        shift = np.full(Np, y)
+    else:
+        shape = [1] * img.ndim
+        shape[ax_z] = len(x)
+        shift = np.broadcast_to(y.reshape(shape), Np)
+    
+    ygrid = np.fft.ifftshift(np.arange(-(Np[ax_y]//2), int(np.ceil(Np[ax_y]/2)))) / Np[ax_y]
+    ygrid = ygrid.reshape(Ng)
+    Y = np.exp(-2j * np.pi * shift * ygrid)
+    img *= Y
+
+    if apply_fft:
+        img = np.fft.ifft2(img, axes=axis) # this was math.ifft2_partial
+
+    if real_img:
+        img = np.real(img)
+
+    # Adjust weights after shift if provided
+    if weights is not None and not np.isscalar(weights) and apply_fft:
+        weights_shifted = imshift_fft(weights, x, y)
+        img = img / weights_shifted
+
+    return img
+
+    
+
+def imshift_fft_transposed(img, x, y=None, apply_fft=True, weights=None):
+    """
+    Transposed version of imshift_fft for data in order [Ny, Nangles, Nx]
+    y is applied to axis 0 [Ny] and x is applied to axis 2 [Nx]
+
+    Parameters:
+        img (ndarray): Input image stack (Ny, Nangles, Nx).
+        x (float or ndarray): Shift in x-direction (columns) or Nx2 array.
+        y (float or ndarray): Shift in y-direction (rows).
+        apply_fft (bool): If False, assume img is already in Fourier space.
+        weights (ndarray or None): Optional weighting array to reduce noise.
+    
+    Returns:
+        ndarray: Shifted image stack
+    """
+
+    import numpy as np
+
+    # Handle input arguments
+    if y is None:
+        y = x[:, 1]
+        x = x[:, 0]
+
+    if weights is not None and not np.isscalar(weights):
+        eps_ = 1e2 * np.finfo(img.dtype).eps
+        weights = np.maximum(eps_, weights)
+
+    if np.all(x == 0) and np.all(y == 0):
+        return img
+
+    # Apply weights before FFT if provided
+    if weights is not None and not np.isscalar(weights) and apply_fft:
+        img = img * weights
+
+    # Optimize for single-axis shifts
+    if np.all(x == 0):
+        return imshift_fft_ax(img, y, ax=0, apply_fft=apply_fft)
+    elif np.all(y == 0):
+        return imshift_fft_ax(img, x, ax=2, apply_fft=apply_fft)
+
+    # Full 2D FFT-based shift
+    real_img = np.isrealobj(img)
+    Np = img.shape
+
+    if apply_fft:
+        img = np.fft.fft2(img, axes=(0,2)) # this was math.fft2_partial
+
+    # Compute phase shift for x-axis
+    Ng = [1, 1, Np[2]]
+    # shift = np.full(Np, x)
+    shift = np.broadcast_to(x[None,:,None], Np)
+    xgrid = np.fft.ifftshift(np.arange(-(Np[2] // 2), int(np.ceil(Np[2] / 2)))) / Np[2]
+    X = np.exp(-2j * np.pi * np.reshape(shift, Np) * np.reshape(xgrid, Ng))
+    img = img * X
+
+    # Compute phase shift for y-axis
+    Ng = [Np[0], 1, 1]
+    # shift = np.full(Np, y)
+    shift = np.broadcast_to(y[None,:,None], Np)
+    ygrid = np.fft.ifftshift(np.arange(-(Np[0] // 2), int(np.ceil(Np[0] / 2)))) / Np[0]
+    Y = np.exp(-2j * np.pi * np.reshape(shift, Np) * np.reshape(ygrid, Ng))
+    img = img * Y
+
+    if apply_fft:
+        img = np.fft.ifft2(img, axes=(0,2)) # this was math.ifft2_partial
+
+    if real_img:
+        img = np.real(img)
+
+    # Adjust weights after shift if provided
+    if weights is not None and not np.isscalar(weights) and apply_fft:
+        weights_shifted = imshift_fft(weights, x, y)
+        img = img / weights_shifted
+
+    return img
+    
+
 def imshift_fft(img, x, y=None, apply_fft=True, weights=None):
     """
     Apply subpixel shift using Fourier domain phase multiplication.
+    img is in order [Ny, Nx, Nangles]
+    y is applied to axis 0 [Ny] and x is applied to axis 1 [Nx]
 
     Parameters:
         img (ndarray): Input image stack (can be complex).
@@ -293,12 +472,18 @@ def imshift_fft_ax(img, shift, ax, apply_fft=True):
     # Expand scalar shift to full shape
     if np.isscalar(shift):
         shift = np.full(Np, shift)
+        shift = np.reshape(shift, Np)
+    else:
+        ax_len_shift = np.where(np.array(img.shape) == len(shift))[0][0]
+        shape = [1] * img.ndim
+        shape[ax_len_shift] = len(shift)
+        shift = np.broadcast_to(shift.reshape(shape), Npix)
 
     # Create frequency grid
     grid = np.fft.ifftshift(np.arange(-(Npix[ax] // 2), int(np.ceil(Npix[ax] / 2)))) / Npix[ax]
 
     # Compute phase shift
-    X = np.exp(-2j * np.pi * np.reshape(shift, Np) * np.reshape(grid, Ng))
+    X = np.exp(-2j * np.pi * shift * np.reshape(grid, Ng))
 
     # Apply FFT if requested
     if apply_fft:
@@ -561,11 +746,23 @@ def get_img_int_1D(grad_array, ax=0):
         integer = grad_array_fft * Y[:, np.newaxis, np.newaxis]
         integer = np.fft.ifft(integer, axis=0)
 
+    elif ax == 2:
+        grad_array_fft = np.fft.fft(grad_array, axis=2)
+        zgrid = np.fft.ifftshift(np.arange(-(Np[2] // 2), int(np.ceil(Np[2] / 2)))) / Np[2]
+
+        # Integration filter
+        Z = np.exp(2j * np.pi * zgrid)
+        Z = Z / (2j * np.pi * zgrid)
+        Z[0] = 0
+
+        # Apply filter and inverse FFT
+        integer = grad_array_fft * Z[np.newaxis, np.newaxis, :]
+        integer = np.fft.ifft(integer, axis=2)
+
     else:
         raise ValueError("Non-implemented dimension")
 
     return integer
-
 
 def remove_sinogram_ramp(sinogram, air_gap, polyfit_order=-1):
     """
@@ -647,8 +844,11 @@ def unwrap2D_fft(phase_diff, axis, boundary=None, step=0):
     phase = np.real(get_img_int_1D(phase_diff, axis))
 
     # Remove ramp if empty_region provided and axis == 2
-    if boundary is not None and axis == 1:  # MATLAB axis=2 → Python axis=1
-        phase = remove_sinogram_ramp(phase, boundary, -1)
+    if boundary is not None:  # MATLAB axis=2 → Python axis=1
+        if axis is not 1:
+            raise ValueError("Boundary removal is only implemented for axis=1") 
+        else:
+            phase = remove_sinogram_ramp(phase, boundary, -1)
 
     return phase, phase_diff, residues
 
@@ -751,6 +951,65 @@ def imfilter_high_pass_1d(img, ax, sigma, padding=0, apply_fft=True):
 
     return img
 
+def get_img_grad_filtered_ax(img, axis, high_pass_filter, smooth_win, axes=(0, 1, 2)):
+    """
+    Compute filtered image gradient along specified axis.
+    
+    Parameters:
+    img : ndarray
+        Input image.
+    axis : int
+        Axis for gradient 
+    high_pass_filter : float
+        Filter strength.
+    smooth_win : int
+        Window size for edge smoothing.
+    Parameters
+        axes Specify order of [Ny, Nx, Nangles] for img. Default matlab order is [Ny, Nx, Nangles] = (0, 1, 2), default astra order is [Ny, Nangles, Nx] = (0, 2, 1)
+    
+    Returns:
+    d_img : ndarray
+        Filtered gradient image.
+    """
+
+    horizontal_axis = axes[0]
+    vertical_axis = axes[1]
+
+    
+
+    if axis == horizontal_axis:  # Horizontal direction
+        # Smooth edges to avoid jumps
+        img = smooth_edges(img, smooth_win, [vertical_axis])
+        is_real = np.isrealobj(img)
+        Np = img.shape
+        X = 2j * np.pi * (np.fft.fftshift(np.arange(Np[vertical_axis]) / Np[vertical_axis]) - 0.5)
+        d_img = np.fft.fft(img, axis=vertical_axis)
+        shape = [1] * img.ndim
+        shape[vertical_axis] = Np[vertical_axis]
+        d_img = d_img*np.broadcast_to(X.reshape(shape), Np)
+        # Apply high-pass filter along horizontal direction
+        d_img = imfilter_high_pass_1d(d_img, ax=vertical_axis, sigma=high_pass_filter, padding=0, apply_fft=False)
+        d_img = np.fft.ifft(d_img, axis=vertical_axis)
+
+    elif axis == vertical_axis:  # Vertical direction
+        # Smooth edges to avoid jumps
+        img = smooth_edges(img, smooth_win, horizontal_axis)
+        is_real = np.isrealobj(img)
+        Np = img.shape
+        X = 2j * np.pi * (np.fft.fftshift(np.arange(Np[horizontal_axis]) / Np[horizontal_axis]) - 0.5)
+        d_img = np.fft.fft2(img, axis=horizontal_axis)
+        shape = [1] * img.ndim
+        shape[horizontal_axis] = Np[horizontal_axis]
+        d_img = d_img*np.broadcast_to(X.reshape(shape), Np)
+        # Apply high-pass filter along horizontal direction
+        d_img = imfilter_high_pass_1d(d_img, ax=horizontal_axis, sigma=high_pass_filter, padding=0, apply_fft=False)
+        d_img = np.fft.ifft2(d_img, axis=horizontal_axis)
+
+    if is_real:
+        d_img = np.real(d_img)
+
+    return d_img
+
 def get_img_grad_filtered(img, axis, high_pass_filter, smooth_win):
     """
     Compute filtered image gradient along specified axis.
@@ -804,6 +1063,62 @@ def get_resid_sino(sinogram_model, sinogram, high_pass_filter):
     resid_sino = imfilter_high_pass_1d(resid_sino, 1, high_pass_filter)
     
     return resid_sino
+
+def find_optimal_shift_ax(sinogram_model, sinogram, weights, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False, axes=(0, 1, 2)):
+    """
+    Parameters
+        axes Specify order of [Ny, Nx, Nangles] for sinogram_model and sinogram. Default matlab order is [Ny, Nx, Nangles] = (0, 1, 2), default astra order is [Ny, Nangles, Nx] = (0, 2, 1)"""
+
+    Ny_ax = axes[0]
+    Nx_ax = axes[1]
+    Nangles_ax = axes[2]
+
+    shift_x = np.zeros(sinogram_model.shape[Nangles_ax], dtype=np.float32)
+    shift_y = np.zeros(sinogram_model.shape[Nangles_ax], dtype=np.float32)
+    
+    resid_sino = sinogram_model - sinogram
+    # apply high pass filter to get rid of phase artefacts
+    resid_sino = imfilter_high_pass_1d(resid_sino, Nx_ax, high_pass_filter)
+    
+    if unwrap_data_method.lower() == 'none':
+        resid_sino = imfilter_high_pass_1d(resid_sino, ax=Nangles_ax, sigma=high_pass_filter, padding=0)
+       
+    # Horizontal alignment 
+    if align_horizontal:      
+        dX = get_img_grad_filtered_ax(sinogram_model, axis=Ny_ax, high_pass_filter=high_pass_filter, smooth_win=5, axes=axes)
+        if unwrap_data_method.lower() == 'none':
+            dX = imfilter_high_pass_1d(dX, ax=Nangles_ax, sigma=high_pass_filter, padding=0)
+        
+        numerator = np.sum(weights * dX * resid_sino, axis=(Ny_ax, Nx_ax))
+        # if np.mean(numerator) < 0.01:
+        #     numerator[:] = 0
+        denominator = np.sum(weights * dX**2, axis=(Ny_ax, Nx_ax)) # sum2 and mean 2????????????????
+        shift_x = -numerator / denominator
+
+    
+    # Vertical alignment
+    if align_vertical:
+        dY = get_img_grad_filtered(sinogram_model, axis=Nx_ax, high_pass_filter=high_pass_filter, smooth_win=5, axes=axes)
+        if unwrap_data_method.lower() == 'none':
+            dY = imfilter_high_pass_1d(dY, ax=Ny_ax, sigma=high_pass_filter, padding=0)
+
+        numerator = np.sum(weights * dY * resid_sino, axis=(Ny_ax, Nx_ax))
+        # if np.mean(numerator) < 0.01:
+        #     numerator[:] = 0
+        denominator = np.sum(weights * dY**2, axis=(0, 1))
+        shift_y = -numerator / denominator
+    
+    # Combine shifts
+    shift = np.stack([shift_x, shift_y], axis=-1)
+
+    # Check for NaNs
+    if np.isnan(shift).any():
+        print("Warning: Alignment failed, estimated shift is NaN")
+
+    # Compute error
+    err = np.sqrt(np.mean((weights * resid_sino)**2, axis=(Ny_ax, Nx_ax))) / MASS
+
+    return shift, err
 
 def find_optimal_shift(sinogram_model, sinogram, weights, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False):
     

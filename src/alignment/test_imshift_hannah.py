@@ -107,6 +107,137 @@ plot_3axes(img_orig, 'img_orig')
 # %%
 #### tomoconsistency
 
+def align_tomo_consistency_linear_notranspose(sinogram, weights_find_shift, weights, theta, Npix, optimal_shift, binning,
+                                  high_pass_filter, unwrap_data_method):
+    
+    sinogram = sinogram.transpose((0, 2, 1))
+    weights_find_shift = weights_find_shift.transpose((0, 2, 1))
+    
+    Ny = sinogram.shape[0]
+    Nangles = sinogram.shape[1]
+    Nx = sinogram.shape[2]
+    
+    Nz = Nx
+    vol_geom = astra.create_vol_geom(Nx, Nz, Ny)
+
+    # Projection geometry (3D parallel beam)
+    proj_geom = astra.create_proj_geom(
+        'parallel3d',
+        1,  # detector pixel size in x
+        1,  # detector pixel size in y   
+        Ny,          
+        Nx,          
+        theta
+    )
+    
+
+    shift_total = np.zeros((Nangles,2))
+    shift_history = []
+    shift_velocity = np.zeros((Nangles, 2))
+
+    for ii in range(iteration_no):
+        t0 = time.time()
+        # shift with imdeform_affine_fft
+        sinogram_shifted = sinogram
+        if shift_method == 'physical':
+            sinogram_shifted = tc.imshift_fft_2dax(sinogram_shifted, shift_total, axis=(2,0))
+        else:
+            vol_geom, proj_geom = tch.init_astra_vec(Nx, Ny, theta, shift_total)
+            sinogram_shifted = sinogram
+
+        if unwrap_data_method is not 'none':
+            sinogram_shifted = -tc.unwrap2D_fft(sinogram_shifted, axis=2, boundary=None)[0]
+
+        # fbp (ASTRA needs shape Ny * Nangle * Nx)
+        rec = tch.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights)
+        # 
+        # rec = tch.apply_circular_mask(rec, 0.9)
+
+        rec = np.maximum(0, rec)
+
+        if plot_figures:
+            plot_3axes(rec)
+
+        # centering
+        if center_reconstruction:
+
+            rec_center = tc.centering_reconstruction(rec)
+            # print(rec_center)
+            
+            if ii == 0:
+                rec_center_0 = [rec.shape[2]/2,rec.shape[1]/2]
+
+            shift_rec = -0.5*(rec_center - rec_center_0)
+            
+            rec = tc.imshift_fft_2dax(rec, shift_rec[0], shift_rec[1], axis=(2,1))
+
+            # debugging: check if shift has moved the rec to the centre correctly
+            # rec_center = tc.centering_reconstruction(rec)
+            # print(rec_center)
+            # if plot_figures:
+            #     plot_3axes(rec)
+                    
+        # get reprojection
+        sinogram_model = tch.get_projections(rec, vol_geom, proj_geom)
+        # sinogram_model = sinogram_model_astra.transpose((0,2,1))
+
+        if plot_figures:
+            plt.figure(figsize=(10,3))
+            plt.subplot(131),plt.imshow(sinogram_shifted[:,sinogram_shifted.shape[1]//2,:]), plt.title('Sinogram shifted'), plt.colorbar()
+            plt.subplot(132),plt.imshow(sinogram_model[:,sinogram_model.shape[1]//2,:]), plt.title('Sinogram model'), plt.colorbar()
+            plt.subplot(133),plt.imshow(sinogram_shifted[:,sinogram_shifted.shape[1]//2,:]-sinogram_model[:,sinogram_shifted.shape[1]//2,:]), plt.title('Difference'), plt.colorbar()
+            plt.tight_layout()
+
+        MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
+
+        shift_upd, err = tc.find_optimal_shift_ax(sinogram_model, sinogram_shifted, weights_find_shift, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False, axes=(0,2,1))
+        
+
+        # Limit the step size to 0.5 pixels and apply a step relaxation factor
+        if limit_steps == True:
+            # max_step = min(np.quantile(abs(shift_upd), 0.995), 0.5)
+            shift_upd = np.minimum(0.5, abs(shift_upd))*np.sign(shift_upd)*step_relaxation
+        
+        # update the total shift position
+        shift_history.append(shift_upd)
+
+        # Use momentum to accelerate convergence
+        if momentum_acceleration == True and ii > 2:
+            shift_upd, shift_velocity = add_momentum_horizontal(shift_history, shift_velocity)
+
+        # Then apply a median shift in the vertical direction only
+        shift_upd[:, 1] -= np.median(shift_upd[:, 1])
+
+        shift_total = shift_total + shift_upd
+
+        # Check the maximal step update and stop if it's below the stopping criterion
+        max_update = np.quantile(abs(shift_upd), 0.995)
+        print(f"Maximal step update: {max_update*binning:4.2g} px stopping criterion: {min_step_size:4.2g} px" )
+        if max_update*binning < min_step_size:
+            break
+
+        print(f'Iteration {str(ii)} time {time.time()-t0}')
+
+    optimal_shift = optimal_shift + (shift_total*binning)
+
+    shift_history = np.array(shift_history)
+    plt.figure(figsize=(10,5))
+    for i in range(shift_history.shape[0]):
+        plt.plot(shift_history[i, :, 0], color='blue', alpha=0.3, label='x')
+        plt.plot(shift_history[i, :, 1], color='red', alpha=0.3, label='y')
+        plt.xlabel("Angle")
+        plt.ylabel("Shift value")
+    plt.show()
+
+    plt.figure(figsize=(10,5))
+    for i in range(shift_history.shape[0]):
+        plt.plot(i, np.quantile(abs(np.array(shift_history[i, :, :])), 0.995), 'ok')
+        plt.ylabel("Maximal step update")
+        plt.xlabel("Iteration")
+    plt.show()
+
+    return optimal_shift, err, rec, sinogram_shifted
+
 def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, Npix, optimal_shift, binning,
                                   high_pass_filter, unwrap_data_method):
     
@@ -154,12 +285,12 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
 
         # centering
         if center_reconstruction:
-            # we need a transposed array to match the matlab shape otherwise it won't shift correctly with imshift_fft
+            # we need a transposed array to match the matlab shape [Ny, Nx, Nangles] otherwise it won't shift correctly with imshift_fft
             # we should try to change this because it's slow
             rec_t = rec.transpose([1,2,0])
 
             rec_center = tc.centering_reconstruction2(rec_t)
-            # print(rec_center)
+            print(rec_center)
             
             if ii == 0:
                 rec_center_0 = [rec_t.shape[0]/2,rec_t.shape[1]/2]
@@ -169,10 +300,10 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
             rec_t = tc.imshift_fft(rec_t, shift_rec[1], shift_rec[0])
 
             # debugging: check if shift has moved the rec to the centre correctly
-            # rec_center = tc.centering_reconstruction2(rec_t)
-            # print(rec_center)
-            # if plot_figures:
-            #     plot_3axes(rec_t)
+            rec_center = tc.centering_reconstruction2(rec_t)
+            print(rec_center)
+            if plot_figures:
+                plot_3axes(rec_t)
             
             rec = rec_t.transpose([2,0,1])
         
@@ -186,6 +317,9 @@ def align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, 
             plt.subplot(132),plt.imshow(sinogram_model[:,sinogram_model.shape[1]//2,:]), plt.title('Sinogram model'), plt.colorbar()
             plt.subplot(133),plt.imshow(sinogram_shifted[:,sinogram_shifted.shape[1]//2,:]-sinogram_model[:,sinogram_shifted.shape[1]//2,:]), plt.title('Difference'), plt.colorbar()
             plt.tight_layout()
+            # plot_3axes(sinogram_shifted, 'Sinogram shifted')
+            # plot_3axes(sinogram_model, 'Sinogram model')
+            # plot_3axes(sinogram_shifted-sinogram_model, 'Difference')
 
         MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
 
@@ -286,20 +420,20 @@ def add_momentum_horizontal(shift_history, velocity_map):
 import time
 t0 = time.time()
 
-iteration_no = 5
+iteration_no = 200
 step_relaxation = 0.5
 high_pass_filter = 0.01
 min_step_size = 0.01
 unwrap_data_method = 'fft_1d'
-shift_method = 'physical' # physical or geometry
+shift_method = 'geometry' # physical or geometry
 
-plot_figures = True # plot every iteration
+plot_figures = False # plot every iteration
 center_reconstruction = True
 limit_steps = True
 momentum_acceleration = True
 
 bin_levels = [8, 4, 2, 1] 
-bin_levels = [4]
+# bin_levels = [1]
 
 vert_range = np.arange(32,Nlayers-33)
 ROI = (
@@ -321,7 +455,7 @@ for binning in bin_levels:
     weights_find_shift = tc.imshift_generic(weights_find_shift, optimal_shift, Npix = None, affine_matrix = None, smooth = 0, 
                                         ROI = ROI, downsample = binning, interp_method = 'linear', interp_sign = 1)
 
-    optimal_shift, err, rec, sinogram_shifted = align_tomo_consistency_linear(sinogram, weights_find_shift, weights, theta, Npix, optimal_shift, binning,
+    optimal_shift, err, rec, sinogram_shifted = align_tomo_consistency_linear_notranspose(sinogram, weights_find_shift, weights, theta, Npix, optimal_shift, binning,
                                   high_pass_filter, unwrap_data_method)
     
     plt.figure(figsize=(10,5))
