@@ -1,6 +1,7 @@
 # This file is a modified and translated version of code from the
-# “cSAXS matlab package” developed by the CXS group,
-# Paul Scherrer Institute (PSI), Switzerland.
+# “cSAXS matlab package” https://zenodo.org/records/3539550 developed 
+# by the CXS group https://www.psi.ch/en/sls/csaxs/software, at the Paul 
+# Scherrer Institute (PSI), Switzerland.
 #
 # Original work:
 # Copyright (c) 2017 Paul Scherrer Institute (http://www.psi.ch)
@@ -19,8 +20,10 @@
 
 # For publications using this software, please acknowledge:
 # "This work uses a translated and adapted version of the
-# 'cSAXS matlab package' developed by the CXS group,
-# Paul Scherrer Institut, Switzerland."
+# 'cSAXS tomo package' developed by the CXS group,
+# Paul Scherrer Institut, Switzerland." and cite  M. Odstrcil, M. Holler, J. Holler, 
+# M. Guizar-Sicairos,"Alignment methods for nanotomography with deep sub-pixel accuracy", 
+# Opt. Express, (2019).
 #
 # Full license text: https://creativecommons.org/licenses/by-nc-sa/4.0/
 
