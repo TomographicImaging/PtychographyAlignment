@@ -128,6 +128,60 @@ def ifft_partial(x,fft_axis,split_axis, split = 1):
     
     return x
     
+# def get_img_grad(img, axis=None, split=1):
+#     '''
+#     Parameters
+#     ----------
+#     img : TYPE
+#         DESCRIPTION.
+#     axis : TYPE, optional
+#         DESCRIPTION. The default is None.
+#     split : TYPE, optional
+#         DESCRIPTION. The default is 1.
+
+#     Returns
+#     -------
+#     dX : TYPE
+#         DESCRIPTION.
+#     dY : TYPE
+#         DESCRIPTION.
+
+#     '''
+#     import numpy as np
+    
+#     # Check if image is real
+#     is_real = np.isrealobj(img)
+#     Np = img.shape
+
+#     dX = None
+#     dY = None
+    
+#     axis = np.array(axis) # check if this works
+    
+#     if axis is None or 2 in axis:
+#         # Compute frequency vector for X-axis
+#         X = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[1]//2, np.ceil(Np[1]/2))) / Np[1]
+#         # Apply partial FFT and multiply by frequency
+#         dX = fft_partial(img, 1, 1, split, False) * X
+#         # Apply inverse partial FFT
+#         dX = fft_partial(dX, 1, 1, split, True)
+#         if is_real:
+#             dX = np.real(dX)
+
+#     if axis is not None and (1 in axis or dX is None):
+#         # Compute frequency vector for Y-axis
+#         Y = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[0]//2, np.ceil(Np[0]/2))) / Np[0]
+#         # Apply partial FFT and multiply by frequency
+#         dY = fft_partial(img, 0, 2, split, False) * Y[:, np.newaxis, np.newaxis]
+#         # Apply inverse partial FFT
+#         dY = fft_partial(dY, 0, 2, split, True)
+#         if is_real:
+#             dY = np.real(dY)
+#         if axis is None or axis.size == 1:
+#             dX = dY
+
+#     return dX, dY
+
 def get_img_grad(img, axis=None, split=1):
     '''
     Parameters
@@ -156,32 +210,42 @@ def get_img_grad(img, axis=None, split=1):
     dX = None
     dY = None
     
-    axis = np.array(axis) # check if this works
-    
-    if axis is None or 2 in axis:
+    if axis is None:
+        axis = np.array((0,1))
+    else:
+        axis = np.array(axis) 
+
+    if 1 in axis:
         # Compute frequency vector for X-axis
         X = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[1]//2, np.ceil(Np[1]/2))) / Np[1]
         # Apply partial FFT and multiply by frequency
-        dX = fft_partial(img, 1, 1, split, False) * X
+        dX = fft_partial(img, 1, 1, split, False)
+        shape = [1] * img.ndim
+        shape[1] = Np[1]
+        dX = dX * np.broadcast_to(X.reshape(shape),Np)
         # Apply inverse partial FFT
         dX = fft_partial(dX, 1, 1, split, True)
         if is_real:
             dX = np.real(dX)
 
-    if axis is not None and (1 in axis or dX is None):
+    if 0 in axis:
         # Compute frequency vector for Y-axis
         Y = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[0]//2, np.ceil(Np[0]/2))) / Np[0]
         # Apply partial FFT and multiply by frequency
-        dY = fft_partial(img, 0, 2, split, False) * Y[:, np.newaxis, np.newaxis]
+        dY = fft_partial(img, 0, 2, split, False)
+        shape = [1] * img.ndim
+        shape[0] = Np[0]
+        dY = dY * np.broadcast_to(Y.reshape(shape),Np)
         # Apply inverse partial FFT
         dY = fft_partial(dY, 0, 2, split, True)
         if is_real:
             dY = np.real(dY)
-        if axis is None or axis.size == 1:
-            dX = dY
+            
+    if dX is None:
+        dX = dY
+
 
     return dX, dY
-
 
 def imshift_fft_2dax(img, x, y=None, axis=(1, 0), apply_fft=True, weights=None):
     """
@@ -463,10 +527,7 @@ def imshift_fft_ax(img, shift, ax, apply_fft=True):
         Np = list(Npix)
         Np[ax] = 1
 
-    Ng = [1, 1, 1]
-    if ax >= img.ndim:
-        Npix = list(Npix)
-        Npix.append(1)
+    Ng = [1] * img.ndim
     Ng[ax] = Npix[ax]
 
     # Expand scalar shift to full shape
@@ -655,7 +716,7 @@ def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
     if step == 0:
         # analytic formula (sensitive to noise) but faster 
         img = img / (abs(img) + np.finfo(float).eps)
-        d_img = get_img_grad(img, ax) # img is assumed to be complex 
+        d_img = get_img_grad(img, ax)[0] # img is assumed to be complex 
         d_img = np.imag(np.conj(img)*d_img)
     else:
         d_img = np.angle(imshift_fft_ax(img,-step+shift,ax) * np.conj(imshift_fft_ax(img,step+shift,ax)))/(2*step)
@@ -729,8 +790,11 @@ def get_img_int_1D(grad_array, ax=0):
         X = X / (2j * np.pi * xgrid)
         X[0] = 0  # Avoid division by zero
 
+        shape = [1] * grad_array.ndim
+        shape[1] = Np[1]
+
         # Apply filter and inverse FFT
-        integer = grad_array_fft * X[np.newaxis, :, np.newaxis]
+        integer = grad_array_fft * np.broadcast_to(X.reshape(shape),Np)
         integer = np.fft.ifft(integer, axis=1)
 
     elif ax == 0:  # MATLAB axis=1 → Python axis=0
@@ -742,8 +806,11 @@ def get_img_int_1D(grad_array, ax=0):
         Y = Y / (2j * np.pi * ygrid)
         Y[0] = 0
 
+        shape = [1] * grad_array.ndim
+        shape[0] = Np[0]
+
         # Apply filter and inverse FFT
-        integer = grad_array_fft * Y[:, np.newaxis, np.newaxis]
+        integer = grad_array_fft *  np.broadcast_to(Y.reshape(shape),Np)
         integer = np.fft.ifft(integer, axis=0)
 
     elif ax == 2:
@@ -755,8 +822,11 @@ def get_img_int_1D(grad_array, ax=0):
         Z = Z / (2j * np.pi * zgrid)
         Z[0] = 0
 
+        shape = [1] * grad_array.ndim
+        shape[2] = Np[2]
+
         # Apply filter and inverse FFT
-        integer = grad_array_fft * Z[np.newaxis, np.newaxis, :]
+        integer = grad_array_fft * np.broadcast_to(Z.reshape(shape),Np)
         integer = np.fft.ifft(integer, axis=2)
 
     else:
@@ -816,6 +886,58 @@ def remove_sinogram_ramp(sinogram, air_gap, polyfit_order=-1):
     # Remove ramp
     sinogram = sinogram - ramp
 
+    return sinogram
+
+
+def remove_sinogram_ramp_3D(sinogram, air_gap, polyfit_order=1):
+    """
+    Remove phase ramp/offset from a 3D unwrapped sinogram using air regions.
+
+    Parameters:
+        sinogram (ndarray): 3D array of shape (Nlayers, width, Nprojections)
+        air_gap (list or tuple): [left_gap, right_gap] in pixels
+        polyfit_order (int):
+             0 = remove constant offset using air regions
+             1 = remove 2D plane fit along rows using air regions
+
+    Returns:
+        ndarray: Sinogram after ramp removal
+    """
+    sinogram = np.asarray(sinogram)
+    Nlayers, width, Nproj = sinogram.shape
+    air_gap = np.ceil(air_gap).astype(int)
+
+    ax = np.arange(width)
+    mask_left = ax < air_gap[0]
+    mask_right = ax >= width - air_gap[min(len(air_gap)-1, 1)]
+
+    # average values in air regions (left and right)
+    left_vals = np.mean(sinogram[:, mask_left, :], axis=1)  # shape: (Nlayers, Nproj)
+    right_vals = np.mean(sinogram[:, mask_right, :], axis=1)
+
+    if polyfit_order == 0:
+        left_vals[:] = np.mean(left_vals, axis=0)
+        right_vals[:] = np.mean(right_vals, axis=0)
+    elif polyfit_order == 1:
+        ramp = np.linspace(-1, 1, Nlayers)[:, None]
+        for vals in [left_vals, right_vals]:
+            weight = np.ones_like(vals)
+            for _ in range(10):
+                plane_fit = (np.sum(weight * vals, axis=0, keepdims=True) / np.sum(weight, axis=0, keepdims=True) +
+                             np.sum(weight * vals * ramp, axis=0, keepdims=True) / np.sum(weight * ramp**2, axis=0, keepdims=True) * ramp)
+                deviation = 5 * np.median(np.abs(vals - plane_fit), axis=0, keepdims=True)
+                weight = 1 / (1 + (np.abs(vals - plane_fit)/deviation)**2)
+            vals[:] = plane_fit
+
+    # linear interpolation along width (axis=1)
+    interp = np.linspace(0, 1, width)[None, :, None]  # shape: (1, width, 1)
+    ramp_vals = left_vals[:, None, :] * (1 - interp) + right_vals[:, None, :] * interp
+    # ramp_vals shape now is (Nlayers, width, Nproj), matches sinogram
+
+    # subtract ramp
+    sinogram = sinogram - ramp_vals
+    return sinogram
+
 
 def unwrap2D_fft(phase_diff, axis, boundary=None, step=0):
     """
@@ -851,6 +973,159 @@ def unwrap2D_fft(phase_diff, axis, boundary=None, step=0):
             phase = remove_sinogram_ramp(phase, boundary, -1)
 
     return phase, phase_diff, residues
+
+def unwrap2D_fft2(img, empty_region=None, step=0, weights=1, polyfit_order=1):
+    if weights == 1:
+        weights = np.ones((img.shape[0], img.shape[1], 1))
+    weights = np.clip(weights, 0, 1).astype(np.float32)
+
+    residues = np.abs(findresidues(img))*weights[1:,1:]> 0.1
+
+    phase = 0
+    Niters = 5
+    for iter in np.arange(Niters):
+        if iter == 0:
+            img_resid = img
+        else:
+            img_resid = img*np.exp(-1j*phase)
+
+            a_resid, c_factor = stabilize_phase(img_resid)
+            if np.all(np.abs(weights* (a_resid) )<2):
+                phase = phase + weights*(a_resid-c_factor)
+                phase = remove_sinogram_ramp_3D(phase, empty_region, 1)
+                break
+
+        phase = phase + unwrap2D_fft2_iteration(img_resid, weights)
+        phase = remove_sinogram_ramp_3D(phase, empty_region, 1)
+
+    return phase.real, residues
+
+def unwrap2D_fft2_iteration(img, weights):
+
+    img = weights * img / (np.abs(img) + 1e-12)
+    pad_y, pad_x = 64, 64
+    img = np.pad(img, ((pad_y, pad_y), (pad_x, pad_x), (0,0)), mode="symmetric")
+    img = smooth_edges(img, 5, [0, 1])
+
+    [d_X, d_Y] = get_phase_gradient_2D(img, step=0, padding=0)
+    
+    phase = np.real(get_img_int_2D(d_X, d_Y))
+
+    # remove padding
+    phase = phase[pad_y:-pad_y, pad_x:-pad_x]
+    return phase
+
+def get_phase_gradient_2D(img, step=0, padding=0):
+    if padding > 0:
+        img = np.pad(img, ((padding, padding), (padding, padding),(0,0)),
+                     mode="symmetric")
+
+        img = smooth_edges(img, padding, [1, 2])
+
+    if step == 0:
+
+        [d_X, d_Y] = get_img_grad(img)
+
+        d_X = np.imag(np.conj(img) * d_X)
+        d_Y = np.imag(np.conj(img) * d_Y)
+
+    else:
+        raise NotImplementedError("Finite difference method is not implemented for 2D gradients yet")
+
+    if padding > 0:
+        d_X = d_X[padding:-padding, padding:-padding]
+        d_Y = d_Y[padding:-padding, padding:-padding]
+
+    return d_X.real, d_Y.real
+
+def get_img_int_2D(dX, dY):
+    Ny, Nx, _ = dX.shape
+
+    fD = np.fft.fft2(dX + 1j * dY, axes=(0,1))
+
+    xgrid = np.fft.ifftshift(np.arange(-Nx//2, np.ceil(Nx/2))) / Nx
+    ygrid = np.fft.ifftshift(np.arange(-Ny//2, np.ceil(Ny/2))) / Ny
+    X, Y = np.meshgrid(xgrid, ygrid)
+    filter = np.exp(2j * np.pi * (X + Y))
+    filter = filter/ (2j * np.pi * (X + 1j * Y))
+
+    filter[0, 0] = 1
+
+    integral_hat = fD * filter[:, :, None]
+    integral = np.fft.ifft2(integral_hat, axes=(0,1))
+
+    return integral
+
+def stabilize_phase(img_orig, img_ref=None, weights=None, remove_ramp=True, normalize_amplitude=False):
+    if img_ref is None:
+        img_ref = 1
+
+    if weights is None:
+        weights = 1
+
+    M0, N0 = img_orig.shape[:2]
+
+
+    img = img_orig.copy()
+
+    phase_diff = img_ref * np.conj(img)
+
+    M, N = img.shape[:2]
+
+    xramp = np.pi * np.linspace(-1, 1, M)[:, None, None]
+    yramp = np.pi * np.linspace(-1, 1, N)[None, :, None]
+
+
+    x = 0
+    y = 0
+    c_offset = 0
+
+    gamma = np.mean(phase_diff * weights, axis=(0,1)) / np.mean(weights)
+    gamma = gamma / np.abs(gamma)
+
+    if np.any(np.isnan(gamma)):
+        gamma = 1
+
+    gamma_x = None
+    gamma_y = None
+
+    if remove_ramp:
+        phase_diff = phase_diff * np.conj(gamma)
+
+        # linearize
+        phase_diff = np.angle(phase_diff) * weights
+
+        gamma_x = (
+            np.mean(phase_diff * xramp, axis=(0,1))
+            / np.mean(weights * np.abs(xramp) ** 2)
+        )
+
+        gamma_y = (
+            np.mean(phase_diff * yramp, axis=(0,1))
+            / np.mean(weights * np.abs(yramp) ** 2)
+        )
+
+        gamma_x = gamma_x / M
+        gamma_y = gamma_y / N
+
+        # full resolution ramps
+        xramp_full = np.pi * np.linspace(-1, 1, M0)[:, None, None]
+        yramp_full = np.pi * np.linspace(-1, 1, N0)[None, :, None]
+
+        c_offset = np.angle(gamma) + xramp_full*(gamma_x*M0) + yramp_full*(gamma_y*M0)
+        img_out = img_orig*np.exp(1j*c_offset)
+
+    else:
+        img_out = img_orig * gamma
+        c_offset = np.angle(gamma)
+
+    if normalize_amplitude:
+        mean_amp = (
+            np.mean(weights * img_out) / np.mean(weights)
+        )
+        img_out = img_out / mean_amp
+
+    return img_out, c_offset
 
 
 def unwrap_data(sinogram, method, boundary):
@@ -993,17 +1268,17 @@ def get_img_grad_filtered_ax(img, axis, high_pass_filter, smooth_win, axes=(0, 1
 
     elif axis == vertical_axis:  # Vertical direction
         # Smooth edges to avoid jumps
-        img = smooth_edges(img, smooth_win, horizontal_axis)
+        img = smooth_edges(img, smooth_win, [horizontal_axis])
         is_real = np.isrealobj(img)
         Np = img.shape
         X = 2j * np.pi * (np.fft.fftshift(np.arange(Np[horizontal_axis]) / Np[horizontal_axis]) - 0.5)
-        d_img = np.fft.fft2(img, axis=horizontal_axis)
+        d_img = np.fft.fft(img, axis=horizontal_axis)
         shape = [1] * img.ndim
         shape[horizontal_axis] = Np[horizontal_axis]
         d_img = d_img*np.broadcast_to(X.reshape(shape), Np)
         # Apply high-pass filter along horizontal direction
         d_img = imfilter_high_pass_1d(d_img, ax=horizontal_axis, sigma=high_pass_filter, padding=0, apply_fft=False)
-        d_img = np.fft.ifft2(d_img, axis=horizontal_axis)
+        d_img = np.fft.ifft(d_img, axis=horizontal_axis)
 
     if is_real:
         d_img = np.real(d_img)
@@ -1098,14 +1373,14 @@ def find_optimal_shift_ax(sinogram_model, sinogram, weights, MASS, high_pass_fil
     
     # Vertical alignment
     if align_vertical:
-        dY = get_img_grad_filtered(sinogram_model, axis=Nx_ax, high_pass_filter=high_pass_filter, smooth_win=5, axes=axes)
+        dY = get_img_grad_filtered_ax(sinogram_model, axis=Nx_ax, high_pass_filter=high_pass_filter, smooth_win=5, axes=axes)
         if unwrap_data_method.lower() == 'none':
-            dY = imfilter_high_pass_1d(dY, ax=Ny_ax, sigma=high_pass_filter, padding=0)
+            dY = imfilter_high_pass_1d(dY, ax=Nangles_ax, sigma=high_pass_filter, padding=0)
 
-        numerator = np.sum(weights * dY * resid_sino, axis=(Ny_ax, Nx_ax))
+        numerator = np.sum(weights * dY * resid_sino, axis=(Nx_ax, Ny_ax))
         # if np.mean(numerator) < 0.01:
         #     numerator[:] = 0
-        denominator = np.sum(weights * dY**2, axis=(0, 1))
+        denominator = np.sum(weights * dY**2, axis=(Nx_ax, Ny_ax))
         shift_y = -numerator / denominator
     
     # Combine shifts

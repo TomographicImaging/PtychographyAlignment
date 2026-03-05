@@ -337,6 +337,23 @@ def imdeform_affine_fft(img, affine_matrix=None, shift=None):
 
 from scipy.ndimage import uniform_filter1d
 
+def plot_3axes(array, array_name='', data_order=None):
+    plt.figure(figsize=(10,3))
+    plt.subplot(131),plt.imshow(array[array.shape[0]//2,:,:]), plt.title(array_name), plt.colorbar()
+    if data_order is not None:
+        plt.xlabel(data_order[2])
+        plt.ylabel(data_order[1])
+    plt.subplot(132),plt.imshow(array[:,array.shape[1]//2,:]), plt.title(array_name), plt.colorbar()
+    if data_order is not None:
+        plt.xlabel(data_order[2])
+        plt.ylabel(data_order[0])
+    plt.subplot(133),plt.imshow(array[:,:,array.shape[2]//2]), plt.title(array_name), plt.colorbar()
+    if data_order is not None:
+        plt.xlabel(data_order[1])
+        plt.ylabel(data_order[0])
+    plt.tight_layout()
+    plt.show()
+
 def plot_alignment(rec, sinogram_shifted, weights_shifted, err,
                    shift_upd, shift_total, angles, valid_angles, iter, binning):
 
