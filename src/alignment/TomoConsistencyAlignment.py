@@ -28,14 +28,13 @@
 # Full license text: https://creativecommons.org/licenses/by-nc-sa/4.0/
 
 from dataclasses import dataclass
-import astra
 import numpy as np
 import time
 from scipy.optimize import fmin
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
-import warnings
-import tomoconsistency_tools_oriol as tc
+
+from utilities import phase_tools, recon_tools, shift_tools, sino_tools
 
 @dataclass
 class TomoConsistencyConfig:
@@ -91,22 +90,23 @@ class TomoConsistencyAlignment:
         # Phase unwrapping
         if self.config.unwrap_data_method is not None:
             if self.config.unwrap_data_method == 'fft_1d':
-                sinogram_shifted = -tc.unwrap2D_fft(sinogram, axis=2, boundary=None)[0]
+                sinogram_shifted = -phase_tools.unwrap2D_fft(sinogram, axis=2, boundary=None)[0]
             else:
                 raise ValueError("Supported unwrapping methods are None or 'fft_1d'")
 
         iterations = []
         maxvals = []
+        plt.figure()
         for ii in range(self.config.max_iterations):
             t0 = time.time()
 
             # FBP
-            vol_geom, proj_geom = self.init_astra_vec(Nx, Ny, theta, shift_total)
-            rec = self.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights_fbp)
+            vol_geom, proj_geom = recon_tools.init_astra_vec(Nx, Ny, theta, shift_total)
+            rec = recon_tools.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights_fbp)
 
             # Mask
             if self.config.apply_mask: 
-                rec = self.apply_circular_mask(rec, 0.9)
+                rec = recon_tools.apply_circular_mask(rec, 0.9)
 
             # Remove negative values
             if self.config.apply_positivity:
@@ -114,25 +114,25 @@ class TomoConsistencyAlignment:
 
             # Centering
             if self.config.center_reconstruction:
-                rec_center = tc.centering_reconstruction(rec)
+                rec_center = sino_tools.centering_reconstruction(rec)
                 # print(rec_center)
                 
                 if ii == 0:
                     rec_center_0 = [rec.shape[2]/2,rec.shape[1]/2]
 
                 shift_rec = -0.5*(rec_center - rec_center_0)
-                rec = tc.imshift_fft_2dax(rec, shift_rec[0], shift_rec[1], axis=(2,1))
+                rec = shift_tools.imshift_fft_2dax(rec, shift_rec[0], shift_rec[1], axis=(2,1))
 
                 # debugging: check if shift has moved the rec to the centre correctly
-                # rec_center = tc.centering_reconstruction(rec)
+                # rec_center = sino_tools.centering_reconstruction(rec)
                 # print(rec_center)
                         
             # Get reprojection
-            sinogram_model = self.get_projections(rec, vol_geom, proj_geom)
+            sinogram_model = recon_tools.get_projections(rec, vol_geom, proj_geom)
 
             # Calculate optimal shift
             MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
-            shift_upd, err = tc.find_optimal_shift_ax(sinogram_model, sinogram_shifted, weights_find_shift, MASS, self.config.high_pass_filter, self.config.unwrap_data_method, 
+            shift_upd, err = self.find_optimal_shift_ax(sinogram_model, sinogram_shifted, weights_find_shift, MASS, self.config.high_pass_filter, self.config.unwrap_data_method, 
                                                       align_horizontal=self.config.align_horizontal, align_vertical=self.config.align_vertical, axes=(0,2,1))
             
             # Limit the shift size and apply a step relaxation factor
@@ -168,9 +168,10 @@ class TomoConsistencyAlignment:
         optimal_shift = shift_total*binning
 
         if self.config.plot_interactive is False:
+            shift_history = np.array(shift_history)
             plt.figure(figsize=(10,5))
             for i in range(shift_history.shape[0]):
-                plt.plot(i, np.quantile(abs(np.array(shift_history[i, :, :])), 0.995), 'ok')
+                plt.plot(i, np.quantile(abs(shift_history[i, :, :]), 0.995), 'ok')
                 plt.ylabel("Maximum step update")
                 plt.xlabel("Iteration")
             plt.show()
@@ -227,6 +228,62 @@ class TomoConsistencyAlignment:
         plt.tight_layout()
         plt.show()
 
+    def find_optimal_shift_ax(self, sinogram_model, sinogram, weights, MASS, high_pass_filter, unwrap_data_method, align_horizontal=True, align_vertical=False, axes=(0, 1, 2)):
+        """
+        Parameters
+            axes Specify order of [Ny, Nx, Nangles] for sinogram_model and sinogram. Default matlab order is [Ny, Nx, Nangles] = (0, 1, 2), default astra order is [Ny, Nangles, Nx] = (0, 2, 1)"""
+
+        Ny_ax = axes[0]
+        Nx_ax = axes[1]
+        Nangles_ax = axes[2]
+
+        shift_x = np.zeros(sinogram_model.shape[Nangles_ax], dtype=np.float32)
+        shift_y = np.zeros(sinogram_model.shape[Nangles_ax], dtype=np.float32)
+        
+        resid_sino = sinogram_model - sinogram
+        # apply high pass filter to get rid of phase artefacts
+        resid_sino = phase_tools.imfilter_high_pass_1d(resid_sino, Nx_ax, high_pass_filter)
+        
+        if unwrap_data_method.lower() == 'none':
+            resid_sino = phase_tools.imfilter_high_pass_1d(resid_sino, ax=Nangles_ax, sigma=high_pass_filter, padding=0)
+        
+        # Horizontal alignment 
+        if align_horizontal:      
+            dX = phase_tools.get_img_grad_filtered_ax(sinogram_model, axis=Ny_ax, high_pass_filter=high_pass_filter, smooth_win=5, axes=axes)
+            if unwrap_data_method.lower() == 'none':
+                dX = phase_tools.imfilter_high_pass_1d(dX, ax=Nangles_ax, sigma=high_pass_filter, padding=0)
+            
+            numerator = np.sum(weights * dX * resid_sino, axis=(Ny_ax, Nx_ax))
+            # if np.mean(numerator) < 0.01:
+            #     numerator[:] = 0
+            denominator = np.sum(weights * dX**2, axis=(Ny_ax, Nx_ax)) # sum2 and mean 2????????????????
+            shift_x = -numerator / denominator
+
+        
+        # Vertical alignment
+        if align_vertical:
+            dY = phase_tools.get_img_grad_filtered_ax(sinogram_model, axis=Nx_ax, high_pass_filter=high_pass_filter, smooth_win=5, axes=axes)
+            if unwrap_data_method.lower() == 'none':
+                dY = phase_tools.imfilter_high_pass_1d(dY, ax=Nangles_ax, sigma=high_pass_filter, padding=0)
+
+            numerator = np.sum(weights * dY * resid_sino, axis=(Nx_ax, Ny_ax))
+            # if np.mean(numerator) < 0.01:
+            #     numerator[:] = 0
+            denominator = np.sum(weights * dY**2, axis=(Nx_ax, Ny_ax))
+            shift_y = -numerator / denominator
+        
+        # Combine shifts
+        shift = np.stack([shift_x, shift_y], axis=-1)
+
+        # Check for NaNs
+        if np.isnan(shift).any():
+            print("Warning: Alignment failed, estimated shift is NaN")
+
+        # Compute error
+        err = np.sqrt(np.mean((weights * resid_sino)**2, axis=(Ny_ax, Nx_ax))) / MASS
+
+        return shift, err
+
     def add_momentum_horizontal(self, shift_history, velocity_map):
 
         # get a subset of the shift history as a numpy array
@@ -269,250 +326,4 @@ class TomoConsistencyAlignment:
         # update shift using velocity map
         shift[:, axis] = (1 - gain) * shift[:, axis] + gain * velocity_map[:, axis]
 
-        return shift, velocity_map
-    
-    def init_astra_vec(self, Nx, Ny, theta_rad, shifts, rot_center_x=0, rot_center_y=0):
-        # Need to add COR
-
-        delta_x = shifts[:,0]
-        delta_y = shifts[:,1]
-        vectors = np.zeros((len(theta_rad), 12), dtype=np.float32)
-        du, dv = 1.0, 1.0 # detector pixel sizes - update this
-
-        for i, th in enumerate(theta_rad):
-            # ray direction
-            vectors[i,0] =  np.sin(th)
-            vectors[i,1] = -np.cos(th)
-            vectors[i,2] =  0
-
-            # u-direction (0,0)->(0,1)
-            u_x = np.cos(th) * du
-            u_y = np.sin(th) * du
-            u_z = 0
-
-            # v-direction (0,0)->(1,0)
-            v_x = 0
-            v_y = 0
-            v_z = dv
-
-            # detector center with shifts
-            vectors[i,3] = delta_x[i] * u_x + delta_y[i] * v_x
-            vectors[i,4] = delta_x[i] * u_y + delta_y[i] * v_y
-            vectors[i,5] = delta_x[i] * u_z + delta_y[i] * v_z
-
-            vectors[i,3] -= u_x * rot_center_x + v_x * rot_center_y
-            vectors[i,4] -= u_y * rot_center_x + v_y * rot_center_y
-            vectors[i,5] -= u_z * rot_center_x + v_z * rot_center_y
-
-            # u-direction (0,0)->(0,1)
-            vectors[i,6] = u_x
-            vectors[i,7] = u_y
-            vectors[i,8] = u_z
-
-            # v-direction (0,0)->(1,0)
-            vectors[i,9]  = 0
-            vectors[i,10] = 0
-            vectors[i,11] = dv
-
-        proj_geom = astra.create_proj_geom('parallel3d_vec', 
-            Ny,          
-            Nx,          
-            vectors
-        )
-
-        Nz = Nx
-
-        vol_geom = astra.create_vol_geom(Nx, Nz, Ny)
-
-        return vol_geom, proj_geom
-    
-    def FBP_astra(self, sinogram, vol_geom, proj_geom, weights):
-      
-        Ny, Nangles, Nx = sinogram.shape
-
-        Fsize = max(64, 2**int(np.ceil(np.log2(2*Nx))))
-        pad_left = (Fsize - Nx) // 2
-        pad_right = Fsize - Nx - pad_left
-        freqs = np.fft.fftfreq(Fsize)
-        ramp = np.abs(freqs)
-
-        filtered = np.zeros_like(sinogram)
-        block_size = 2048
-        for start in range(0, Ny, block_size):
-            end = min(start + block_size, Ny)
-
-            for iy in range(start, end):
-                for ia in range(Nangles):
-                    proj = sinogram[iy, ia, :]
-                    proj_padded = np.pad(proj, (pad_left,pad_right), mode='constant')
-
-                    F = np.fft.fft(proj_padded)
-                    F *= ramp * weights[ia]
-                    filtered_proj = np.real(np.fft.ifft(F))
-
-                    filtered[iy, ia, :] = filtered_proj[pad_left:pad_left+Nx]
-                
-        filtered = filtered.astype(np.float32)
-
-        sino_id = astra.data3d.create('-proj3d', proj_geom, filtered)
-        vol_id  = astra.data3d.create('-vol',  vol_geom)
-
-        cfg = astra.astra_dict('BP3D_CUDA')
-        cfg['ProjectionDataId'] = sino_id
-        cfg['ReconstructionDataId'] = vol_id
-
-        alg_id = astra.algorithm.create(cfg)
-        astra.algorithm.run(alg_id)
-
-        rec = astra.data3d.get(vol_id)
-
-        astra.algorithm.delete(alg_id)
-        astra.data3d.delete(sino_id)
-        astra.data3d.delete(vol_id)
-
-        return rec
-    
-    def get_projections(self, volume, vol_geom, proj_geom):
-
-        vol_id = astra.data3d.create('-vol', vol_geom, volume)
-
-        sino_id = astra.data3d.create('-proj3d', proj_geom)
-
-        cfg = astra.astra_dict('FP3D_CUDA')
-        cfg['ProjectionDataId'] = sino_id
-        cfg['VolumeDataId'] = vol_id
-
-        alg_id = astra.algorithm.create(cfg)
-        astra.algorithm.run(alg_id)
-
-        sino = astra.data3d.get(sino_id)
-
-        # Cleanup
-        astra.algorithm.delete(alg_id)
-        astra.data3d.delete(vol_id)
-        astra.data3d.delete(sino_id)
-
-        return sino
-    
-    def apply_circular_mask(self, rec, radius=0.99, apodize=True):
-
-        if rec.ndim == 2:
-            H, W = rec.shape
-            rec_reshaped = rec[None, ...] 
-        elif rec.ndim == 3:
-            _, H, W = rec.shape
-            rec_reshaped = rec
-        else:
-            raise ValueError("rec must be 2D or 3D numpy array")
-
-        if apodize == True:
-            tomogram = np.zeros((H, W, 1), dtype=np.float32)
-            _, mask = self.apply_3D_apodization(tomogram, rad_apod=0, axial_apod=0, radial_smooth=5)
-        else:
-            y_range = (H - 1) / 2
-            x_range = (W - 1) / 2
-
-            Y, X = np.ogrid[-y_range:y_range+1, -x_range:x_range+1]
-
-            dist = np.sqrt(X**2 + Y**2)
-
-            max_dim = max(H, W)
-            radius_applied = radius * (max_dim / 2)
-
-            r = np.sqrt(1 / np.pi)
-
-            mask = (radius_applied - dist).clip(-r, r)
-            mask *= (0.5 * np.pi) / r
-            mask = np.sin(mask)
-            mask = 0.5 + 0.5 * mask  
-
-        masked = rec_reshaped * mask  
-
-        if rec.ndim == 2:
-            return masked[0]
-        else:
-            return masked
-        
-    def apply_3D_apodization(self, tomogram, rad_apod=None, axial_apod=None, radial_smooth=None):
-        if tomogram.ndim != 3:
-            raise ValueError("tomogram must have shape (rows, cols, layers)")
-        rows, cols, layers = tomogram.shape
-        if radial_smooth is None:
-            radial_smooth = min(rows, cols) / 10.0
-        circulo = None
-        out = tomogram
-        if rad_apod is not None:
-            yt = np.arange(-np.floor(rows / 2.0), np.ceil(rows / 2.0), dtype=np.float32)
-            xt = np.arange(-np.floor(cols / 2.0), np.ceil(cols / 2.0), dtype=np.float32)
-            Y, X = np.meshgrid(yt, xt, indexing='ij')
-            tappix = max(float(radial_smooth), 1.0)
-            half_min = min(rows, cols) / 2.0
-            zerorad = int(round(half_min - float(rad_apod) - tappix))
-            taperfunc = self.radtap(X, Y, tappix, zerorad)
-            circulo = np.float32(1.0 - taperfunc)
-            out = out * circulo[:, :, np.newaxis]
-        if axial_apod is not None and layers > 1:
-            pad = max(0, int(round(layers - 2.0 * float(axial_apod))))
-            filters = fract_hanning_pad(layers, layers, pad)
-            filt = np.fft.ifftshift(filters[:, 0])
-            out = out * filt[np.newaxis, np.newaxis, :]
-        return out, circulo
-    
-    def radtap(self, X, Y, tappix, zerorad):
-        tau = 2.0 * float(tappix)
-        R = np.sqrt(X**2 + Y**2, dtype=np.float32)
-        with np.errstate(invalid='ignore'):
-            taper = 0.5 * (1.0 + np.cos(2.0 * np.pi * (R - zerorad - tau / 2.0) / tau))
-        out = np.zeros_like(R, dtype=np.float32)
-        mask_transition = R <= (zerorad + tau / 2.0)
-        out[mask_transition] = taper[mask_transition]
-        out[R > (zerorad + tau / 2.0)] = 1.0
-        out[R < zerorad] = 0.0
-        return out
-
-def fract_hanning_pad(self, outputdim, filterdim=None, unmodsize=None):
-    if filterdim is None and unmodsize is None:
-        filterdim = outputdim
-        unmodsize = 0
-    elif filterdim is None or unmodsize is None:
-        raise ValueError("Provide either only outputdim, or outputdim+filterdim+unmodsize.")
-    outputdim = int(outputdim)
-    filterdim = int(filterdim)
-    unmodsize = int(unmodsize)
-    if outputdim < unmodsize:
-        raise ValueError("Output dimension must be smaller or equal to size of unmodulated window")
-    if outputdim < filterdim:
-        raise ValueError("Filter cannot be larger than output size")
-    if unmodsize < 0:
-        warnings.warn("Specified unmodsize < 0, setting unmodsize = 0")
-        unmodsize = 0
-    fd = filterdim
-    N = np.arange(fd, dtype=np.float32)
-    Nc, Nr = np.meshgrid(N, N, indexing='ij')
-    if unmodsize == 0:
-        inner = ((1.0 + np.cos(2.0 * np.pi * Nc / fd)) *
-                 (1.0 + np.cos(2.0 * np.pi * Nr / fd))) / 4.0
-    else:
-        s = int(np.floor((unmodsize - 1) / 2.0))
-        denom = float(fd + 1 - unmodsize)
-        out_cols = 0.5 * (1.0 + np.cos(2.0 * np.pi * (Nc - s) / denom))
-        if s > 0:
-            out_cols[:, :s] = 1.0
-        start_right_0b = s + fd + 2 - unmodsize
-        if start_right_0b < fd:
-            out_cols[:, start_right_0b:] = 1.0
-        out_rows = 0.5 * (1.0 + np.cos(2.0 * np.pi * (Nr - s) / denom))
-        if s > 0:
-            out_rows[:s, :] = 1.0
-        if start_right_0b < fd:
-            out_rows[start_right_0b:, :] = 1.0
-        inner = out_cols * out_rows
-    inner = inner.astype(np.float32)
-    out = np.zeros((outputdim, outputdim), dtype=np.float32)
-    start_1b = int(np.round(outputdim / 2.0 + 1.0 - fd / 2.0))
-    end_1b   = int(np.round(outputdim / 2.0 + 1.0 + fd / 2.0 - 1.0))
-    start_0b = start_1b - 1
-    end_excl = end_1b
-    out[start_0b:end_excl, start_0b:end_excl] = np.fft.fftshift(inner)
-    out = np.fft.fftshift(out)
-    return out
+        return shift, velocity_map    

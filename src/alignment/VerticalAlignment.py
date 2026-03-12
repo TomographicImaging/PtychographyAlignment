@@ -33,14 +33,15 @@ from scipy.ndimage import map_coordinates, convolve
 import scipy.signal as sig
 from scipy.cluster.vq import kmeans2
 from dataclasses import dataclass
-
 import matplotlib.pyplot as plt
-import tomoconsistency_tools_oriol as tc
+
+from utilities import phase_tools, shift_tools, sino_tools
 
 @dataclass
 class VerticalAlignmentConfig:
     data_filter: float = 0.01
     iterations: int = 1000
+    plot_alignment: bool = True
 
 
 class VerticalAlignment:
@@ -67,7 +68,7 @@ class VerticalAlignment:
         Ny, Nangles = sinogram.shape
         shift_Y = np.zeros((Nangles))
 
-        sinogram = tc.remove_linear_ramp(sinogram)
+        sinogram = sino_tools.remove_linear_ramp(sinogram)
 
         # remove edges
         sinogram = sinogram[1:Ny-1]
@@ -77,18 +78,19 @@ class VerticalAlignment:
         shift_Y, _, weight = self.cross_correlation_estimate(sinogram, weight, angles)
         shift_Y = shift_Y - (max(shift_Y)+min(shift_Y))/2
         
-        plt.figure(figsize=(8,4))
-        plt.subplot(121),plt.plot(angles, shift_Y)
-        plt.title('Shift from cross correlation estimate')
-        plt.ylabel('Vertical shift (pixels)'), plt.xlabel('Angle (rad)')
-        plt.grid()
+        if self.config.plot_alignment:
+            plt.figure(figsize=(8,4))
+            plt.subplot(121),plt.plot(angles, shift_Y)
+            plt.title('Shift from cross correlation estimate')
+            plt.ylabel('Vertical shift (pixels)'), plt.xlabel('Angle (rad)')
+            plt.grid()
         
         # vertical mass fluctuation
         refinement_loops = 3
         for ii in np.arange(refinement_loops):
 
-            sinogram_shifted =  np.squeeze(tc.imshift_fft_ax(np.expand_dims(sinogram,1), np.squeeze(shift_Y),0))
-            weights_shifted =  np.squeeze(tc.imshift_linear_ax(np.expand_dims(weight,1), np.squeeze(shift_Y), 0,'nearest'))
+            sinogram_shifted =  np.squeeze(shift_tools.imshift_fft_ax(np.expand_dims(sinogram,1), np.squeeze(shift_Y),0))
+            weights_shifted =  np.squeeze(shift_tools.imshift_linear_ax(np.expand_dims(weight,1), np.squeeze(shift_Y), 0,'nearest'))
             
             offset = int(np.round(np.max(np.abs(shift_Y))))
             sinogram_shifted = sinogram_shifted[offset:sinogram.shape[0]-offset]
@@ -99,11 +101,12 @@ class VerticalAlignment:
 
         shift_Y = shift_Y - np.median(shift_Y)
 
-        plt.subplot(122),plt.plot(angles, shift_Y)
-        plt.title('Shift from vertical mass alignment')
-        plt.ylabel('Vertical shift (pixels)'), plt.xlabel('Angle (rad)')
-        plt.grid()
-        plt.tight_layout()
+        if self.config.plot_alignment:
+            plt.subplot(122),plt.plot(angles, shift_Y)
+            plt.title('Shift from vertical mass alignment')
+            plt.ylabel('Vertical shift (pixels)'), plt.xlabel('Angle (rad)')
+            plt.grid()
+            plt.tight_layout()
 
         return shift_Y
 
@@ -118,8 +121,8 @@ class VerticalAlignment:
         total_shift_Y = np.zeros(Nangles)
 
         # initial filtering
-        sinogram0 = tc.remove_linear_ramp(sinogram0)
-        sinogram0 = tc.imfilter_high_pass_1d(sinogram0, 0, self.config.data_filter, Nlayers // 2)
+        sinogram0 = sino_tools.remove_linear_ramp(sinogram0)
+        sinogram0 = phase_tools.imfilter_high_pass_1d(sinogram0, 0, self.config.data_filter, Nlayers // 2)
         sinogram0 = sinogram0 * tukey(Nlayers, 0.1)[:, None]
         sinogram0 = self.fill_gaps_1D(sinogram0, ~weights0.astype(bool),20)
 
@@ -133,9 +136,9 @@ class VerticalAlignment:
         err = []
         for i in range(self.config.iterations):
             # shift by current  guess
-            sinogram = tc.imshift_fft_ax(sinogram0, total_shift_Y,ax=1)
+            sinogram = shift_tools.imshift_fft_ax(sinogram0, total_shift_Y,ax=1)
 
-            sinogram = tc.imfilter_high_pass_1d(sinogram, 0, self.config.data_filter, Nlayers // 2)
+            sinogram = phase_tools.imfilter_high_pass_1d(sinogram, 0, self.config.data_filter, Nlayers // 2)
             sinogram = sinogram * tukey(Nlayers, 0.2)[:, None]
 
             m_sinogram = (np.sum(sinogram * weights, axis=1)/ (np.sum(weights, axis=1) + 1e-3))
@@ -190,7 +193,7 @@ class VerticalAlignment:
         ind = np.argsort(D)
 
         # initial filtering
-        sinogram = tc.imfilter_high_pass_1d(
+        sinogram = phase_tools.imfilter_high_pass_1d(
             sinogram, 0, self.config.data_filter, Nlayers // 2
         )
 

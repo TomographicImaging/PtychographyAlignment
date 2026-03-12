@@ -20,9 +20,9 @@ TiAlloy_Kuda_data_key='/data'
 TiAlloy_Kuda_angle_key ='/entry/data/rotation_angle'
 
 # Connor Wright's data
-275019_filepath = DATA_ROOT / "connor_wright" / "scan_275019_275199_tomo_complex.nxs"
-275019_data_key = '/entry1/data'
-275019_angle_key = '/entry1/rotation_angle'
+Connor_Wright_filepath = DATA_ROOT / "connor_wright" / "scan_275019_275199_tomo_complex.nxs"
+Connor_Wright_data_key = '/entry1/data'
+Connor_Wright_angle_key = '/entry1/rotation_angle'
 
 # simulations 20250416
 angles_path = DATA_ROOT / "Simulations"/ "20250416"/ "sphere_phantom_angles_361.npy"

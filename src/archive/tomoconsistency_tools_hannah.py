@@ -4,6 +4,8 @@ import matplotlib.pyplot as plt
 from numpy.fft import fft2, ifft2, fft, ifft, ifftshift
 import warnings
 import tomoconsistency_tools_oriol as tc
+import ipywidgets as widgets
+from IPython.display import display
 
 def init_astra(Nx, Ny, angles):
     # TO-DO: add lamino angles, tilt angles, pixel scaling, rotation centre, skewness
@@ -354,94 +356,27 @@ def plot_3axes(array, array_name='', data_order=None):
     plt.tight_layout()
     plt.show()
 
-def plot_alignment(rec, sinogram_shifted, weights_shifted, err,
-                   shift_upd, shift_total, angles, valid_angles, iter, binning):
+def plot_crop(volume, Nx_start, Nx_stop, Ny_start, Ny_stop, Nangles):
+    fig, ax = plt.subplots(figsize=(8,8))
+    img = ax.imshow(volume[:,:,0])
+    plt.colorbar(img, ax=ax)
+    ax.set_xlabel('Nx')
+    ax.set_ylabel('Ny')
+    ax.plot([Nx_start, Nx_stop], [Ny_start, Ny_start], '--r')
+    ax.plot([Nx_start, Nx_stop], [Ny_stop, Ny_stop], '--r')
 
-    Nlayers, _, Nangles = sinogram_shifted.shape
+    ax.plot([Nx_start, Nx_start], [Ny_start, Ny_stop], '--r')
+    ax.plot([Nx_stop, Nx_stop], [Ny_start, Ny_stop], '--r')
 
-    if not plt.fignum_exists(5464):
-        plt.figure(5464, figsize=(12, 8))
-    else:
-        plt.figure(5464)
+    plt.close(fig)
 
-    mid = rec[:, :, rec.shape[2] // 2]
-    q_lo, q_hi = np.quantile(mid, [0.01, 0.999])
-    rng = [q_lo, q_hi]
+    def update(slice_idx):
+        img.set_data(volume[:,:,slice_idx])
+        ax.set_title(f'Slice {slice_idx}')
+        fig.canvas.draw_idle()
+        display(fig)
 
-    plt.clf()
-    plt.subplots_adjust(wspace=0.25, hspace=0.25)
-
-    plt.subplot(2, 3, 1)
-    sino_slice = sinogram_shifted[Nlayers // 2, :, :].T
-
-    hp = sino_slice - uniform_filter1d(sino_slice, size=5, axis=0)
-    q1, q2 = np.quantile(hp, [0.01, 0.99])
-    plt.imshow(hp, vmin=q1, vmax=q2, cmap='bone', aspect='auto')
-    plt.title(f'High-pass filtered shifted sinogram\nCurrent downsampling: {binning}x')
-    plt.axis('off')
-
-    # if par.showsorted:
-    #     xaxis = angles
-    #     xlab = 'Angle [deg]'
-    # else:
-    xaxis = np.arange(Nangles)
-    xlab = '# projection'
-
-    plt.subplot(2, 3, 2)
-    plt.plot(xaxis, shift_upd[:, 0] * binning, '.-r')
-    plt.plot(xaxis, shift_upd[:, 1] * binning, '.-b')
-    plt.grid(True)
-    plt.legend(['horiz', 'vert'])
-    plt.title('Current position update')
-    plt.xlim([min(xaxis), max(xaxis)])
-    plt.ylabel('Shift  x downsampling [px]')
-    plt.xlabel(xlab)
-
-    plt.subplot(2, 3, 3)
-    plt.plot(xaxis, shift_total[:, 0] * binning, '.-r')
-    plt.plot(xaxis, shift_total[:, 1] * binning, '.-b')
-    plt.title('Total position update')
-    plt.legend(['horiz', 'vert'])
-    plt.ylabel('Shift x downsampling [px]')
-    plt.xlim([min(xaxis), max(xaxis)])
-    plt.xlabel(xlab)
-    plt.grid(True)
-
-    plt.subplot(2, 3, 6)
-    plt.plot(xaxis[valid_angles], err[iter, valid_angles], 'k.')
-    plt.plot(xaxis[~valid_angles], err[iter, ~valid_angles], 'r.')
-    if np.any(~valid_angles):
-        plt.legend(['errors', 'ignored'])
-    plt.title('Current error')
-    plt.grid(True)
-    plt.xlim([min(xaxis), max(xaxis)])
-    plt.xlabel(xlab)
-
-    plt.subplot(2, 3, 5)
-    plt.plot(err)
-    plt.plot(np.mean(err, axis=1), 'k', linewidth=3)
-    plt.grid(True)
-    plt.xlim([1, iter + 1])
-    plt.xscale('log')
-    plt.yscale('log')
-    plt.title('MSE evolution')
-    plt.xlabel('Iteration')
-    plt.ylabel('Mean square error')
-
-    plt.subplot(2, 3, 4)
-    midz = rec[:, :, rec.shape[2] // 2]
-    q_lo, q_hi = np.quantile(midz, [0.01, 0.999])
-    plt.imshow(midz.T, cmap='bone', vmin=q_lo, vmax=q_hi, origin='lower')
-    plt.axis('image')
-    plt.xticks([])
-    plt.yticks([])
-    plt.title('Current reconstruction')
-
-    plt.draw()
-    plt.pause(0.001)
-
-
-import numpy as np
+    widgets.interact(update, slice_idx=(0, Nangles - 1, 1))
 
 def apply_circular_mask(rec, radius=0.99, apodize=True):
 
