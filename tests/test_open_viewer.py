@@ -8,9 +8,9 @@ def test_open_viewer(request):
     
     from viewer.OpenViewer import OpenViewer
     from io_module.Imports import ImportData
-    from config.paths import pollen_Volpe_filepath, pollen_Volpe_data_key, pollen_Volpe_angle_key
+    from config.paths import pollen_filepath, pollen_data_key, pollen_angle_key
 
-    data = ImportData(pollen_Volpe_filepath, data_key= pollen_Volpe_data_key, angle_key = pollen_Volpe_angle_key)
+    data = ImportData(pollen_filepath, data_key= pollen_data_key, angle_key = pollen_angle_key)
     projections_raw= data.get_projections_raw()
     OpenViewer(projections_raw)
 

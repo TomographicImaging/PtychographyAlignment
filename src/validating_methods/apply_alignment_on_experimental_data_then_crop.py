@@ -1,4 +1,4 @@
-# Load the saved arrays from the pollen_Volpe data (see "src\pipeline\pipeline_based_on_original_notebook.ipynb")
+# Load the saved arrays from the pollen data (see "src\pipeline\pipeline_based_on_original_notebook.ipynb")
 # This script assumes that partial results (".npy") are saved in the folder "data/experimental/data/"
 # The scope of the script is to apply the shift calculated with the alignment method in "src\validating_methods\Analyse_Experiment_with_VerticalAlignmentSwiss.py".
 # The alignment is performed in both x and y. The result is cropped only after alignment. 

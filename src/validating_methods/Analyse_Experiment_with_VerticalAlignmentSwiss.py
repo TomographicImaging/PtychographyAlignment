@@ -6,7 +6,7 @@ from viewer.OpenViewer import OpenViewer
 from validating_methods.TomoRecon import get_volume
 from alignment.VerticalAlignmentSwiss import VerticalAlignmentSwiss
 
-# Load the saved array from the pollen_Volpe data (see "src\pipeline\pipeline_based_on_original_notebook.ipynb")
+# Load the saved array from the pollen data (see "src\pipeline\pipeline_based_on_original_notebook.ipynb")
 projections = np.load(r"data/experimental/data/projections_reduced.npy")
 print("angle, vertical, horizontal = ",projections.shape)
 angles_reduced = np.load(r"data/experimental/data/angles_reduced.npy")

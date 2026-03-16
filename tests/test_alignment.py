@@ -4,7 +4,7 @@ from scipy import signal, ndimage
 import numpy as np
 
 import utilities as utils
-from config.paths import Connor_Wright_filepath, Connor_Wright_data_key, Connor_Wright_angle_key
+from config.paths import battery_filepath, battery_data_key, battery_angle_key
 from alignment import CrossCorrelationAlignment, CrossCorrelationConfig, TomoConsistencyAlignment, TomoConsistencyConfig, VerticalAlignment, VerticalAlignmentConfig
 
 import os
@@ -12,7 +12,7 @@ TEST_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def setup():
     """Load data and perform initial cropping"""
-    img, theta, _ = utils.utils_tomo.load_data(Connor_Wright_filepath, data_key= Connor_Wright_data_key, angle_key = Connor_Wright_angle_key)
+    img, theta, _ = utils.utils_tomo.load_data(battery_filepath, data_key= battery_data_key, angle_key = battery_angle_key)
     img = img.transpose((1,2,0)) # transpose to shape [Ny, Nx, Nangles]
     img = img[:,:,1:]
     theta = theta[1:]
@@ -103,7 +103,7 @@ def test_vertical_alignment(crop=True):
 
 def test_tomoconsistency_alignment():
     """
-    This is a functional test of the tomoconsistency alignment using the Connor Wright dataset.
+    This is a functional test of the tomoconsistency alignment using the battery dataset.
     It requires the image to be shifted initially with values from the cross correlation and vertical alignment 
     It takes approximately 2 minutes to run
     """

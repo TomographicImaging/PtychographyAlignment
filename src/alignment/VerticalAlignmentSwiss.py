@@ -1,7 +1,7 @@
 # author: Danica Sugic
 # This code was generated from the paper "Phase tomography from x-ray coherent diffractive imaging projections"
 # DOI: 10.1364/OE.19.021345 (https://opg.optica.org/oe/fulltext.cfm?uri=oe-19-22-21345&id=223191) 
-# The methods are work in progress. They were partially tested on the pollen-Volpe data and the simulated gVXR data.
+# The methods are work in progress. They were partially tested on the pollen data and the simulated gVXR data.
 # The error minimiser method in particular needs improvement.
 #-------------------------------------------------------------------------------------------------------------------------
 

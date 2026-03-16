@@ -22,9 +22,9 @@ phase_filename = directory / "tomo_ptycho_396963_0_699_phase.nxs"
 mod_filename = directory / "tomo_ptycho_396963_0_699_modulus.nxs"
 filename = 'NiTiZifan_396963.mat'
 
-from config.paths import NiTi_Zifan_data_key, NiTi_Zifan_angle_key
-data_key = NiTi_Zifan_data_key
-angle_key = NiTi_Zifan_angle_key
+from config.paths import NiTi_data_key, NiTi_angle_key
+data_key = NiTi_data_key
+angle_key = NiTi_angle_key
 
 with h5py.File(phase_filename,'r') as data_file: 
     data_shape = data_file[str(data_key)].shape

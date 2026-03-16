@@ -63,7 +63,7 @@ pip install -e .
 ```
 ### Testing
 
-6. Tests require the data "pollen_Volpe", please store this as specified in [`paths`](src/config/paths.py). To run tests:
+6. Tests require the data "pollen", please store this as specified in [`paths`](src/config/paths.py). To run tests:
 ```sh
 pytest
 ```
