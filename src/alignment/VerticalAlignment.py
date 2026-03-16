@@ -50,7 +50,11 @@ class VerticalAlignment:
 
     def run_alignment(self, img, residuals, angles):
         """
-        Runs vertical alignment, expects an image of shape (Ny, Nx, Nangles)
+        Runs vertical alignment code based on Manuel Guizar-Sicairos, Ana Diaz, Mirko Holler, 
+        Miriam S. Lucas, Andreas Menzel, Roger A. Wepf, and Oliver Bunk "Phase tomography from 
+        x-ray coherent diffractive imaging projections" Optics Express Vol. 19, Issue 22, 
+        pp. 21345-21357 (2011) https://doi.org/10.1364/OE.19.021345
+        Expects an image of shape (Ny, Nx, Nangles)
         
         Parameters
         ----------
