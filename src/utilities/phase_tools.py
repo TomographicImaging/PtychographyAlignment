@@ -456,7 +456,7 @@ def unwrap2D_fft(phase_diff, axis, boundary=None, step=0):
 
     # Remove ramp if empty_region provided and axis == 2
     if boundary is not None:  # MATLAB axis=2 → Python axis=1
-        if axis is not 1:
+        if axis != 1:
             raise ValueError("Boundary removal is only implemented for axis=1") 
         else:
             phase = remove_sinogram_ramp(phase, boundary, -1)
