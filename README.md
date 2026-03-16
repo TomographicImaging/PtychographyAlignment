@@ -1,8 +1,13 @@
 # PtychographyAlignment
-The [`applications`](applications) directory contains Jupiter notebooks to analyse experimental data provided by Diamond. Edit [`paths`](src/config/paths.py) and [`user_paths`](src/config/user_paths.py) to configure the filepaths for your data.
+The [`applications`](applications) directory contains Jupiter notebooks to analyse experimental data provided by Diamond. 
+[alignment_pipeline.ipynb](https://github.com/TomographicImaging/PtychographyAlignment/blob/main/applications/alignment_pipeline.ipynb) is an example of the most recent alignment pipeline using CrossCorrelationAlignment, VerticalAlignment and TomoConsistencyAlignment
+
+Edit [`paths`](src/config/paths.py) and [`user_paths`](src/config/user_paths.py) to configure the filepaths for your data.
+
 The [`converters`](converters) directory contains scripts to convert the data/files between different formats.
+
 The [`src`](src) contains the core code for the package. In particular, the code is structured as follows:
-- [`alignment`](src/alignment/)
+- [`alignment`](src/alignment/) contains the alignment methods. The most recent code is in the classes `CrossCorrelationAlignment`, `VerticalAlignment` and `TomoConsistencyAlignment`
 - [`config`](src/config/) contains configurations settings for the code, such as the data filepaths.
 - [`CT reconstructions`](src/CT_reconstruction/) tomographic reconstructions methods
 - [`io_module`](src/io_module/)
