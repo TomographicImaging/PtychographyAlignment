@@ -1,5 +1,0 @@
-CT_reconstruction
-alignment
-config
-io_module
-utilities
