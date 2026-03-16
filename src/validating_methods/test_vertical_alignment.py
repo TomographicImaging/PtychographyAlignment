@@ -2,10 +2,10 @@
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
-import tomoconsistency_tools_oriol as tc
-import tomoconsistency_tools_hannah as tch
-from alignment.VerticalAlignment import VerticalAlignment, VerticalAlignmentConfig
-import TomoConsistencyAlignment
+from archive import tomoconsistency_tools_oriol as tc
+from archive import tomoconsistency_tools_hannah as tch
+from alignment import VerticalAlignment, VerticalAlignmentConfig
+from alignment import TomoConsistencyAlignment
 from skimage.registration import phase_cross_correlation
 from scipy import signal, ndimage
 from utilities import utils_tomo

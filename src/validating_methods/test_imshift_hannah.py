@@ -9,10 +9,10 @@ Created on Fri Nov 21 10:32:37 2025
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
-import tomoconsistency_tools_oriol as tc
-import tomoconsistency_tools_hannah as tch
-import VerticalAlignmentSwiss
-import TomoConsistencyAlignment
+from archive import tomoconsistency_tools_oriol as tc
+from archive import tomoconsistency_tools_hannah as tch
+from alignment import VerticalAlignmentSwiss
+from alignment import TomoConsistencyAlignment
 from scipy.optimize import fmin
 from utilities import utils_tomo
 from scipy.signal import windows 

@@ -12,8 +12,8 @@ import os
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
-import tomoconsistency_tools_oriol as tc
-import tomoconsistency_tools_hannah as tch
+from archive import tomoconsistency_tools_oriol as tc
+from archive import tomoconsistency_tools_hannah as tch
 # from VerticalAlignmentSwiss import VerticalAlignmentSwiss as va
 # from utilities import utils_tomo
 from scipy.signal import windows 
