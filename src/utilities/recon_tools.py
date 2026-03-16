@@ -3,6 +3,18 @@ import astra
 import warnings
 
 def init_astra(Nx, Ny, theta_rad):
+    """
+    Initialise astra projection and volume geometry
+    
+    Parameters
+    ----------
+    Nx: int
+        Number of pixels in the x (horizontal) direction
+    Ny: int
+        Number of pixels in the y (vertical) direction
+    theta_rad: ndarray
+        Array of projection angles in radians
+    """
     Nz = Nx
     vol_geom = astra.create_vol_geom(Nx, Nz, Ny)
 
@@ -19,7 +31,30 @@ def init_astra(Nx, Ny, theta_rad):
     return vol_geom, proj_geom
 
 def init_astra_vec(Nx, Ny, theta_rad, shifts, rot_center_x=0, rot_center_y=0):
-    # Need to add COR
+    """
+    Initialise astra projection and volume geometry using the vector geometry definition
+    The projections are defined as an array of vectors which allows non-uniform shifts to
+    be defined per-projection. Input an array of x and y shifts to be applied to each 
+    projection plus an additional rotation centre offset on top to be applied in x and y.
+    
+    Using this method we don't need to physically shift the projection images - it is used 
+    in the TomoConsistencyAlignment method. 
+    
+    Parameters
+    ----------
+    Nx: int
+        Number of pixels in the x (horizontal) direction
+    Ny: int
+        Number of pixels in the y (vertical) direction
+    theta_rad: ndarray
+        Array of projection angles in radians
+    shifts: ndarray
+        Array of shape (Nangles, 2) containing x and y shifts in pixels
+    rot_center_x: float
+        Rotation centre offset in x. Defined as the offset in pixels from the center 0
+    rot_center_y: float
+        Rotation centre offset in y. Defined as the offset in pixels from the center 0
+    """
 
     delta_x = shifts[:,0]
     delta_y = shifts[:,1]
@@ -74,6 +109,33 @@ def init_astra_vec(Nx, Ny, theta_rad, shifts, rot_center_x=0, rot_center_y=0):
     return vol_geom, proj_geom
 
 def FBP_astra(sinogram, vol_geom, proj_geom, weights):
+    """
+    Custom astra FBP call. 
+    Applies a weighted ramp filter to each projection in the sinogram via FFT, then
+    performs back projection using ASTRA's BP3D_CUDA algorithm.
+
+    Parameters
+    ----------
+    sinogram : np.ndarray, shape (Ny, Nangles, Nx)
+        3D sinogram array where Ny is the number of detector rows, Nangles is the
+        number of projection angles, and Nx is the number of detector columns.
+    vol_geom : dict
+        ASTRA volume geometry dictionary defining the reconstruction volume,
+        as created by astra.create_vol_geom().
+    proj_geom : dict
+        ASTRA projection geometry dictionary defining the acquisition geometry,
+        as created by astra.create_proj_geom().
+    weights : np.ndarray, shape (Nangles,)
+        Per-angle scaling factors applied to the ramp filter in the frequency domain.
+        Can encode angular sampling intervals or other angle-dependent corrections
+
+    Returns
+    -------
+    rec : np.ndarray
+        3D reconstructed volume retrieved from ASTRA, with shape determined by vol_geom.
+
+    """
+
     
     Ny, Nangles, Nx = sinogram.shape
 
@@ -120,6 +182,27 @@ def FBP_astra(sinogram, vol_geom, proj_geom, weights):
     return rec
 
 def get_projections(volume, vol_geom, proj_geom):
+    """
+    Compute 3D forward projections of a volume using ASTRA's FP3D_CUDA projector.
+
+    Parameters
+    ----------
+    volume : np.ndarray
+        3D volume array to project, with shape consistent with vol_geom.
+    vol_geom : dict
+        ASTRA volume geometry dictionary defining the volume dimensions and voxel
+        size, as created by astra.create_vol_geom().
+    proj_geom : dict
+        ASTRA projection geometry dictionary defining the acquisition geometry,
+        as created by astra.create_proj_geom().
+
+    Returns
+    -------
+    sino : np.ndarray, shape (Ny, Nangles, Nx)
+        3D sinogram of forward projections, where Ny is the number of detector
+        rows, Nangles is the number of projection angles, and Nx is the number
+        of detector columns.
+    """
 
     vol_id = astra.data3d.create('-vol', vol_geom, volume)
 
@@ -142,6 +225,26 @@ def get_projections(volume, vol_geom, proj_geom):
     return sino
 
 def apply_circular_mask(rec, radius=0.99, apodize=True):
+    """
+    Apply a circular mask (with optional apodization) to a 2D or 3D reconstruction.
+
+    Parameters
+    ----------
+    rec : np.ndarray
+        2D array of shape (H, W) or 3D array of shape (Nz, H, W) to be masked.
+    radius : float, optional
+        Fractional radius of the circular mask relative to half the largest
+        image dimension. Only used when apodize=False. Default is 0.99.
+    apodize : bool, optional
+        If True, use apply_3D_apodization() to generate the mask with default
+        radial smoothing. If False, build a smooth sinusoidal roll-off mask
+        controlled by radius. Default is True.
+
+    Returns
+    -------
+    masked : np.ndarray
+        Array of the same shape as rec with the circular mask applied.
+    """
 
     if rec.ndim == 2:
         H, W = rec.shape
@@ -181,6 +284,33 @@ def apply_circular_mask(rec, radius=0.99, apodize=True):
         return masked
     
 def apply_3D_apodization(tomogram, rad_apod=None, axial_apod=None, radial_smooth=None):
+    """
+    Apply radial and/or axial apodization to a 3D tomogram to suppress edge artefacts.
+
+    Parameters
+    ----------
+    tomogram : np.ndarray, shape (rows, cols, layers)
+        3D array to apodize.
+    rad_apod : float or None, optional
+        Radius (in pixels) of the unapodized central disc. Pixels beyond
+        (min(rows, cols)/2 - rad_apod - radial_smooth) are smoothly tapered
+        to zero. If None, no radial apodization is applied.
+    axial_apod : float or None, optional
+        Half-width (in layers) of the unapodized axial region. Layers outside
+        this range are tapered using a fractional Hanning window. If None,
+        no axial apodization is applied.
+    radial_smooth : float or None, optional
+        Transition width (in pixels) for the radial taper. Defaults to
+        min(rows, cols) / 10 if not provided.
+
+    Returns
+    -------
+    out : np.ndarray, shape (rows, cols, layers)
+        Apodized tomogram.
+    circulo : np.ndarray or None, shape (rows, cols)
+        2D radial mask applied to each layer, or None if rad_apod is None.
+
+    """
     if tomogram.ndim != 3:
         raise ValueError("tomogram must have shape (rows, cols, layers)")
     rows, cols, layers = tomogram.shape
@@ -206,6 +336,29 @@ def apply_3D_apodization(tomogram, rad_apod=None, axial_apod=None, radial_smooth
     return out, circulo
 
 def radtap(X, Y, tappix, zerorad):
+    """
+    Compute a 2D radial taper (roll-off) function on a meshgrid.
+
+    Produces a smooth transition from 0 (inside) to 1 (outside) using a
+    raised cosine over a transition annulus of width 2 * tappix.
+
+    Parameters
+    ----------
+    X : np.ndarray
+        2D array of x-coordinates, typically from np.meshgrid.
+    Y : np.ndarray
+        2D array of y-coordinates, typically from np.meshgrid.
+    tappix : float
+        Half-width (in pixels) of the cosine transition zone.
+    zerorad : int
+        Inner radius (in pixels) below which the taper is zero.
+
+    Returns
+    -------
+    out : np.ndarray, shape matching X and Y
+        Float32 taper array with values in [0, 1]; 0 inside zerorad,
+        1 outside the transition zone, and a smooth cosine roll-off in between.
+    """
     tau = 2.0 * float(tappix)
     R = np.sqrt(X**2 + Y**2, dtype=np.float32)
     with np.errstate(invalid='ignore'):
@@ -218,6 +371,32 @@ def radtap(X, Y, tappix, zerorad):
     return out
 
 def fract_hanning_pad(outputdim, filterdim=None, unmodsize=None):
+    """
+    Construct a 2D fractional Hanning window, zero-padded to a specified output size.
+
+    The window has a central flat (unmodulated) region of size unmodsize and a
+    raised-cosine taper towards the edges within the filterdim x filterdim support,
+    embedded in a zero-padded output of size outputdim x outputdim.
+
+    Parameters
+    ----------
+    outputdim : int
+        Size of the square output array.
+    filterdim : int or None, optional
+        Size of the Hanning window support. Must be <= outputdim.
+        If None, both filterdim and unmodsize must be None, in which case
+        filterdim defaults to outputdim and unmodsize to 0.
+    unmodsize : int or None, optional
+        Number of central samples left unmodulated (flat top). Must be
+        >= 0 and <= filterdim. If 0, a standard 2D Hanning window is used.
+
+    Returns
+    -------
+    out : np.ndarray, shape (outputdim, outputdim)
+        float32 array containing the fftshifted fractional Hanning window
+        embedded in zero-padding.
+
+    """
     if filterdim is None and unmodsize is None:
         filterdim = outputdim
         unmodsize = 0

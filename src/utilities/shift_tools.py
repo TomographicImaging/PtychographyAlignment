@@ -80,16 +80,16 @@ def imshift_fft(img, x, y=None, apply_fft=True, weights=None):
 def imshift_fft_ax(img, shift, ax, apply_fft=True):
     '''
     % IMSHIFT_FFT_AX  will apply subpixel shift that can be different for each 
-% frame along one dimension only 
-% If apply_fft == false, then images will be assumed to be in fourier space 
-%
-% Inputs:
-%   **img - inputs ndim array to be shifted along ax-th dimension
-%   **ax  - axis along which the array will be shifted 
-%   **shift - Nx1 vector of shifts, positive direction is up
-%   **apply_fft = false - if the img is already after fft, default is false
-% *returns*: 
-%   ++img - shifted image  / volume 
+    % frame along one dimension only 
+    % If apply_fft == false, then images will be assumed to be in fourier space 
+    %
+    % Inputs:
+    %   **img - inputs ndim array to be shifted along ax-th dimension
+    %   **ax  - axis along which the array will be shifted 
+    %   **shift - Nx1 vector of shifts, positive direction is up
+    %   **apply_fft = false - if the img is already after fft, default is false
+    % *returns*: 
+    %   ++img - shifted image  / volume 
     '''
     
     if np.all(np.asarray(shift) == 0):

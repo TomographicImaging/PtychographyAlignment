@@ -464,6 +464,38 @@ def unwrap2D_fft(phase_diff, axis, boundary=None, step=0):
     return phase, phase_diff, residues
 
 def unwrap2D_fft2(img, empty_region=None, step=0, weights=1, polyfit_order=1):
+    """
+    Iterative 2D phase unwrapping using FFT-based integration.
+
+    Unwraps the phase of a complex image over up to 5 iterations, removing
+    residual ramps after each step. Convergence is checked by testing whether
+    the weighted residual phase is everywhere smaller than 2 radians.
+
+    Parameters
+    ----------
+    img : np.ndarray, shape (Ny, Nx, 1) or (Ny, Nx, Nz)
+        Complex input image(s) whose phase is to be unwrapped.
+    empty_region : array-like or None, optional
+        Region descriptor passed to remove_sinogram_ramp_3D to identify
+        background pixels used for ramp removal. If None, no region is used.
+    step : int, optional
+        Gradient computation method. Currently only 0 (analytic) is supported.
+        Default is 0.
+    weights : np.ndarray or int, optional
+        Float weight map of shape (Ny, Nx, 1), clipped to [0, 1]. Pixels with
+        low weight (e.g. low amplitude) contribute less to the unwrapping.
+        Default is 1 (uniform weights).
+    polyfit_order : int, optional
+        Order of polynomial used in ramp removal. Default is 1.
+
+    Returns
+    -------
+    phase : np.ndarray, shape (Ny, Nx, ...)
+        Unwrapped phase in radians (real part).
+    residues : np.ndarray of bool, shape (Ny-1, Nx-1, ...)
+        Boolean map of phase residues (locations where unwrapping is
+        ambiguous), thresholded at 0.1 after weighting.
+    """
     if weights == 1:
         weights = np.ones((img.shape[0], img.shape[1], 1))
     weights = np.clip(weights, 0, 1).astype(np.float32)
@@ -490,6 +522,27 @@ def unwrap2D_fft2(img, empty_region=None, step=0, weights=1, polyfit_order=1):
     return phase.real, residues
 
 def unwrap2D_fft2_iteration(img, weights):
+    """
+    Single iteration of FFT-based 2D phase unwrapping.
+
+    Normalises the complex image by its amplitude, symmetrically pads it to
+    reduce edge discontinuities, computes the phase gradient, and integrates
+    back to obtain the unwrapped phase.
+
+    Parameters
+    ----------
+    img : np.ndarray, shape (Ny, Nx, 1) or (Ny, Nx, Nz)
+        Complex input image(s) to unwrap in this iteration.
+    weights : np.ndarray, shape (Ny, Nx, 1)
+        Weight map in [0, 1] applied to the normalised image before gradient
+        computation.
+
+    Returns
+    -------
+    phase : np.ndarray, shape (Ny, Nx, ...)
+        Real unwrapped phase estimate for this iteration, with padding removed.
+    """
+
 
     img = weights * img / (np.abs(img) + 1e-12)
     pad_y, pad_x = 64, 64
@@ -505,6 +558,36 @@ def unwrap2D_fft2_iteration(img, weights):
     return phase
 
 def get_phase_gradient_2D(img, step=0, padding=0):
+    """
+    Compute the 2D phase gradient of a complex image.
+
+    Calculates the x and y phase gradient components as the imaginary part of
+    conj(img) * grad(img), optionally with symmetric padding and edge smoothing
+    to reduce boundary artefacts.
+
+    Parameters
+    ----------
+    img : np.ndarray, shape (Ny, Nx, 1) or (Ny, Nx, Nz)
+        Complex input image(s).
+    step : int, optional
+        Gradient method. 0 uses the analytic (FFT-based) gradient via
+        get_img_grad. Other values raise NotImplementedError. Default is 0.
+    padding : int, optional
+        Number of pixels to symmetrically pad the image on each side before
+        computing gradients. Padding is removed before returning. Default is 0.
+
+    Returns
+    -------
+    d_X : np.ndarray, shape (Ny, Nx, ...)
+        Real x-component of the phase gradient.
+    d_Y : np.ndarray, shape (Ny, Nx, ...)
+        Real y-component of the phase gradient.
+
+    Raises
+    ------
+    NotImplementedError
+        If step != 0.
+    """
     if padding > 0:
         img = np.pad(img, ((padding, padding), (padding, padding),(0,0)),
                      mode="symmetric")
@@ -528,6 +611,26 @@ def get_phase_gradient_2D(img, step=0, padding=0):
     return d_X.real, d_Y.real
 
 def get_img_int_2D(dX, dY):
+    """
+    Integrate 2D phase gradients to recover the phase via FFT.
+
+    Treats (dX + i*dY) as the complex gradient of an analytic signal and
+    recovers the integral using a frequency-domain filter derived from the
+    finite-difference shift theorem.
+
+    Parameters
+    ----------
+    dX : np.ndarray, shape (Ny, Nx, Nchannels)
+        x-component of the phase gradient.
+    dY : np.ndarray, shape (Ny, Nx, Nchannels)
+        y-component of the phase gradient.
+
+    Returns
+    -------
+    integral : np.ndarray, shape (Ny, Nx, Nchannels), complex
+        Integrated phase. Take the real part for the unwrapped phase.
+
+    """
     Ny, Nx, _ = dX.shape
 
     fD = np.fft.fft2(dX + 1j * dY, axes=(0,1))
@@ -546,6 +649,39 @@ def get_img_int_2D(dX, dY):
     return integral
 
 def stabilize_phase(img_orig, img_ref=None, weights=None, remove_ramp=True, normalize_amplitude=False):
+    """
+    Align the global phase (and optionally linear ramp) of a complex image to a reference.
+
+    Estimates and removes a constant phase offset and, if requested, linear
+    x/y phase ramps by minimising the weighted phase difference between
+    img_orig and img_ref.
+
+    Parameters
+    ----------
+    img_orig : np.ndarray, shape (Ny, Nx, ...), complex
+        Input complex image to be stabilized.
+    img_ref : np.ndarray or None, optional
+        Complex reference image. If None, a uniform reference of 1 is used,
+        effectively just removing the mean phase. Default is None.
+    weights : np.ndarray or None, optional
+        Real weight map for the phase difference estimation. If None, uniform
+        weights of 1 are used. Default is None.
+    remove_ramp : bool, optional
+        If True, estimate and remove a linear (x + y) phase ramp in addition
+        to the constant offset. Default is True.
+    normalize_amplitude : bool, optional
+        If True, normalise the amplitude of the output image to 1 after phase
+        correction. Default is False.
+
+    Returns
+    -------
+    img_out : np.ndarray, same shape and dtype as img_orig
+        Phase-stabilized complex image.
+    c_offset : np.ndarray or float
+        Phase correction applied to img_orig; a scalar if remove_ramp=False,
+        or an array of shape (Ny, Nx, 1) containing the full ramp + offset if
+        remove_ramp=True.
+    """
     if img_ref is None:
         img_ref = 1
 

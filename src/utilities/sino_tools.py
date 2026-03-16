@@ -24,8 +24,25 @@ def remove_linear_ramp(proj_sum):
     return proj_sum
 
 def centering_reconstruction(rec):
-    
-    
+    """
+    Estimate the 2D centre of mass of a 3D reconstruction volume.
+
+    Computes a mass-weighted mean of per-slice centres of mass across all
+    slices, using the square root of the (non-negative) voxel intensities
+    as the mass distribution.
+
+    Parameters
+    ----------
+    rec : np.ndarray, shape (Nz, Ny, Nx)
+        3D reconstruction volume. Negative values are clamped to zero before
+        computing the mass.
+
+    Returns
+    -------
+    rec_center : np.ndarray, shape (2,)
+        Mass-weighted centre of the volume as (x, y) pixel coordinates,
+        where x corresponds to the column axis and y to the row axis.
+    """    
     
     eps = np.finfo(rec.dtype).eps
     w = np.sqrt(np.maximum(0,rec)) + eps
