@@ -1,4 +1,4 @@
-# %%
+
 from skimage.registration import phase_cross_correlation
 from scipy import signal, ndimage
 import numpy as np
@@ -6,7 +6,10 @@ import numpy as np
 import utilities as utils
 from config.paths import Connor_Wright_filepath, Connor_Wright_data_key, Connor_Wright_angle_key
 from alignment import CrossCorrelationAlignment, CrossCorrelationConfig, TomoConsistencyAlignment, TomoConsistencyConfig, VerticalAlignment, VerticalAlignmentConfig
-# %%
+
+import os
+TEST_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def setup():
     """Load data and perform initial cropping"""
     img, theta, _ = utils.utils_tomo.load_data(Connor_Wright_filepath, data_key= Connor_Wright_data_key, angle_key = Connor_Wright_angle_key)
@@ -67,7 +70,7 @@ def test_cross_correlation_alignment():
     xcorr = CrossCorrelationAlignment(config)
     shift_correlation = xcorr.run_alignment(img[Ny_start:Ny_stop,Nx_start:Nx_stop,:], theta)
 
-    shift = np.loadtxt('shift_correlation.csv', delimiter=',', skiprows=1)
+    shift = np.loadtxt(os.path.join(TEST_DIR,'shift_correlation.csv'), delimiter=',', skiprows=1)
 
     np.testing.assert_array_almost_equal(shift_correlation, shift)
 
@@ -94,7 +97,7 @@ def test_vertical_alignment(crop=True):
     va = VerticalAlignment(config)
     shift_vertical = va.run_alignment(phase, residuals, theta)
 
-    shift = np.loadtxt('shift_vertical.csv', delimiter=',', skiprows=1)
+    shift = np.loadtxt(os.path.join(TEST_DIR,'shift_vertical.csv'), delimiter=',', skiprows=1)
 
     np.testing.assert_array_almost_equal(shift_vertical, shift)
 
@@ -167,7 +170,7 @@ def test_tomoconsistency_alignment():
     shift_tomoconsistency = np.zeros((Nangles,2))
     shift_tomoconsistency, _, _, _ = aligner.run_alignment(sinogram, theta, weights_find_shift, shift_tomoconsistency, binning)
 
-    shift = np.loadtxt('shift_tomoconsistency.csv', delimiter=',', skiprows=1)
+    shift = np.loadtxt(os.path.join(TEST_DIR,'shift_tomoconsistency.csv'), delimiter=',', skiprows=1)
 
     np.testing.assert_array_almost_equal(shift_tomoconsistency, shift)
     
