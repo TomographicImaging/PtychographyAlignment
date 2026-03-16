@@ -3,7 +3,7 @@ import astra
 import matplotlib.pyplot as plt
 from numpy.fft import fft2, ifft2, fft, ifft, ifftshift
 import warnings
-import tomoconsistency_tools_oriol as tc
+from archive import tomoconsistency_tools_oriol as tc
 import ipywidgets as widgets
 from IPython.display import display
 
