@@ -11,7 +11,7 @@ print(project_root)
 sys.path.append(project_root)
 
 import numpy as np
-from src.CT_reconstruction.TomoRecon import get_volume
+from validating_methods.TomoRecon import get_volume
 from src.viewer.OpenViewer import OpenViewer
 
 def apply_y_shifts(projections, trans):

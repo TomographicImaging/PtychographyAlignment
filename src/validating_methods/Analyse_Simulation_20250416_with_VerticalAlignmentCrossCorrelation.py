@@ -2,7 +2,7 @@ import sys, os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import numpy as np
 from viewer.OpenViewer import OpenViewer
-from CT_reconstruction.TomoRecon import get_volume
+from validating_methods.TomoRecon import get_volume
 from alignment.Alignment import VerticalAlignmentCrossCorrelation
 from config.paths import angles_path, projections_yjitter_path, projections_xyjitter_path, delta_x_sim_path, delta_y_sim_path
 

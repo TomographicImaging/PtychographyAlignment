@@ -70,7 +70,7 @@ except ImportError:
     rank = 0
     nprocs = 1
 import utilities.utils_used as utils_used
-from CT_reconstruction import TomoRecon
+from validating_methods import TomoRecon
 #import utils
 
 def check_crop(proj_dir, proj_centre = None, proj_shape = None):
