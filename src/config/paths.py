@@ -20,14 +20,14 @@ TiAlloy_Kuda_data_key='/data'
 TiAlloy_Kuda_angle_key ='/entry/data/rotation_angle'
 
 # Connor Wright's data
-Connor_Wright_filepath = DATA_ROOT / "connor_wright" / "scan_275019_275199_tomo_complex.nxs"
+Connor_Wright_filepath = DATA_ROOT / "Experimental" / "connor_wright" / "scan_275019_275199_tomo_complex.nxs"
 Connor_Wright_data_key = '/entry1/data'
 Connor_Wright_angle_key = '/entry1/rotation_angle'
 
 # simulations 20250416
-angles_path = DATA_ROOT / "Simulations"/ "20250416"/ "sphere_phantom_angles_361.npy"
-projections_yjitter_path = DATA_ROOT / "Simulations"/ "20250416" / "sphere_phantom_yjitter_simulation_361_projections.npy"
-projections_xyjitter_path = DATA_ROOT / "Simulations"/ "20250416" / "sphere_phantom_jitter_simulation_361_projections.npy"
-delta_x_sim_path = DATA_ROOT / "Simulations"/ "20250415" / "sphere_phantom_jitter_delta_x_360.npy"
-delta_y_sim_path  = DATA_ROOT / "Simulations"/ "20250416" / "sphere_phantom_jitter_delta_y_361.npy"
+angles_path = DATA_ROOT / "simulations" / "sphere_phantom_angles_361.npy"
+projections_yjitter_path = DATA_ROOT / "simulations" / "sphere_phantom_yjitter_simulation_361_projections.npy"
+projections_xyjitter_path = DATA_ROOT / "simulations" / "sphere_phantom_jitter_simulation_361_projections.npy"
+delta_x_sim_path = DATA_ROOT / "simulations" / "sphere_phantom_jitter_delta_x_361.npy"
+delta_y_sim_path  = DATA_ROOT / "simulations" / "sphere_phantom_jitter_delta_y_361.npy"
 
