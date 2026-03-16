@@ -5,3 +5,4 @@ from . import sino_tools
 from . import phase_tools
 from . import utils_tomo
 from . import io_tools
+from . import quality_metrics
