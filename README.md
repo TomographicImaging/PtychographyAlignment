@@ -1,29 +1,31 @@
 # PtychographyAlignment
-The [`applications`](applications) directory contains Jupiter notebooks to analyse experimental data provided by Diamond. 
+The [`applications`](applications) directory contains Jupyter notebooks to analyse experimental data provided by Diamond. 
 [alignment_pipeline.ipynb](https://github.com/TomographicImaging/PtychographyAlignment/blob/main/applications/alignment_pipeline.ipynb) is an example of the most recent alignment pipeline using CrossCorrelationAlignment, VerticalAlignment and TomoConsistencyAlignment
-
-Edit [`paths`](src/config/paths.py) and [`user_paths`](src/config/user_paths.py) to configure the filepaths for your data.
-
-The [`converters`](converters) directory contains scripts to convert the data/files between different formats.
 
 The [`src`](src) contains the core code for the package. In particular, the code is structured as follows:
 - [`alignment`](src/alignment/) contains the alignment methods. The most recent code is in the classes `CrossCorrelationAlignment`, `VerticalAlignment` and `TomoConsistencyAlignment`
 - [`config`](src/config/) contains configurations settings for the code, such as the data filepaths.
-- [`CT reconstructions`](src/CT_reconstruction/) tomographic reconstructions methods
-- [`io_module`](src/io_module/)
-- [`pipeline`](src/pipeline/)
-- [`quality_metrics`](src/quality_metrics)
+- [`io_module`](src/io_module/) loading tools
+- [`pipeline`](src/pipeline/) contains work in progress pipelines
+- [`quality_metrics`](src/quality_metrics) contains tools to analyse reconstruction quality
 - [`recipe`](recipe) contains environment file
-- [`simulations`](src/simulations/) contains the tools to simulate tomographic projections with [gVXR](https://gvirtualxray.sourceforge.io/), where each projections is shifted along the "x" and "y" axes, i.e., in the transverse plane to the x-rays propagation direction.
+- [`simulations`](src/simulations/) contains tools to simulate tomographic projections with [gVXR](https://gvirtualxray.sourceforge.io/), where each projections is shifted along the "x" and "y" axes, i.e., in the transverse plane to the x-rays propagation direction.
 - [`utilities`](src/utilities/)
-- [`validating_methods`](src/validating_methods/)
-- [`viewer`](src/viewer/)
+    - display_tools: visualise data and plot alignment
+    - phase_tools: phase unwrapping and gradient methods, sinogram ramp tools etc
+    - quality_metrics: contains tools to analyse reconstruction quality
+    - recon_tools: astra reconstruction and re-projection
+    - shift_tools: apply shifts to projections
+    - sino_tools: tools for processing sinograms, smoothing edges
+    - utils_tomo and utils_used: contain wip tools used in validating_methods 
+- [`validating_methods`](src/validating_methods/) contains work in progress methods validation
+- [`viewer`](src/viewer/) contains code to interactively view data using the CIL viewer
 
 The [`tests`](tests) folder contains (some) tests of the methods developed, whereby [`helpers`](tests/helpers) contains small utility functions or classes for tests. 
 
-Note: the code is work in progress. 
-
-## Contributing
+Note: 
+Frequently used data can be saved in [`paths`](src/config/paths.py) and [`user_paths`](src/config/user_paths.py) to be called in multiple places.
+The [`converters`](converters) directory contains scripts to convert the data/files between different formats.
 
 ### Installation
 
