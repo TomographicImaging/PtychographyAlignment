@@ -42,6 +42,7 @@ class TomoConsistencyConfig:
     step_relaxation: float = 0.5
     high_pass_filter: float = 0.01
     min_step_size: float = 0.01
+    unwrap_axis: int = 2
     unwrap_data_method: str = 'fft_1d'
     plot_interactive: bool = True
     center_reconstruction: bool = True
@@ -90,7 +91,7 @@ class TomoConsistencyAlignment:
         # Phase unwrapping
         if self.config.unwrap_data_method is not None:
             if self.config.unwrap_data_method == 'fft_1d':
-                sinogram_shifted = -phase_tools.unwrap2D_fft(sinogram, axis=2, boundary=None)[0]
+                sinogram_shifted = -phase_tools.unwrap2D_fft(sinogram, axis=self.config.unwrap_axis, boundary=None)[0]
             else:
                 raise ValueError("Supported unwrapping methods are None or 'fft_1d'")
 
