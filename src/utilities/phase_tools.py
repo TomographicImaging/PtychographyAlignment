@@ -35,7 +35,7 @@ def get_img_grad(img, axis=None, split=1):
 
     if 1 in axis:
         # Compute frequency vector for X-axis
-        X = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[1]//2, np.ceil(Np[1]/2))) / Np[1]
+        X = 2j * np.pi * np.fft.ifftshift(np.arange(-(Np[1]//2), np.ceil(Np[1]/2))) / Np[1]
         # Apply partial FFT and multiply by frequency
         dX = shift_tools.fft_partial(img, 1, 1, split, False)
         shape = [1] * img.ndim
@@ -48,7 +48,7 @@ def get_img_grad(img, axis=None, split=1):
 
     if 0 in axis:
         # Compute frequency vector for Y-axis
-        Y = 2j * np.pi * np.fft.ifftshift(np.arange(-Np[0]//2, np.ceil(Np[0]/2))) / Np[0]
+        Y = 2j * np.pi * np.fft.ifftshift(np.arange(-(Np[0]//2), np.ceil(Np[0]/2))) / Np[0]
         # Apply partial FFT and multiply by frequency
         dY = shift_tools.fft_partial(img, 0, 2, split, False)
         shape = [1] * img.ndim
@@ -635,8 +635,8 @@ def get_img_int_2D(dX, dY):
 
     fD = np.fft.fft2(dX + 1j * dY, axes=(0,1))
 
-    xgrid = np.fft.ifftshift(np.arange(-Nx//2, np.ceil(Nx/2))) / Nx
-    ygrid = np.fft.ifftshift(np.arange(-Ny//2, np.ceil(Ny/2))) / Ny
+    xgrid = np.fft.ifftshift(np.arange(-(Nx//2), np.ceil(Nx/2))) / Nx
+    ygrid = np.fft.ifftshift(np.arange(-(Ny//2), np.ceil(Ny/2))) / Ny
     X, Y = np.meshgrid(xgrid, ygrid)
     filter = np.exp(2j * np.pi * (X + Y))
     filter = filter/ (2j * np.pi * (X + 1j * Y))

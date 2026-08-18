@@ -31,6 +31,7 @@ from dataclasses import dataclass
 import numpy as np
 import time
 from scipy.optimize import fmin
+from scipy.signal.windows import tukey
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
 
@@ -79,6 +80,12 @@ class TomoConsistencyAlignment:
         sinogram = sinogram.transpose((0, 2, 1))
         weights_find_shift = weights_find_shift.transpose((0, 2, 1))
         [Ny, Nangles, Nx] = sinogram.shape
+
+        # taper weights at the edges to avoid edge artefacts dominating the shift estimate
+        win = tukey(Nx, 0.2).reshape(1, 1, Nx)
+        if Ny > 10 and self.config.align_vertical:
+            win = tukey(Ny, 0.2).reshape(Ny, 1, 1) * win
+        weights_find_shift = np.maximum(0, weights_find_shift * win)
 
         dtheta = (theta[-1] - theta[0]) / (len(theta) - 1) if len(theta) > 1 else 1.0
         weights_fbp = np.full(len(theta), dtheta, dtype=np.float32)
@@ -135,19 +142,28 @@ class TomoConsistencyAlignment:
             shift_upd, err = self.find_optimal_shift_ax(sinogram_model, sinogram_shifted, weights_find_shift, MASS, self.config.high_pass_filter, self.config.unwrap_data_method, 
                                                       align_horizontal=self.config.align_horizontal, align_vertical=self.config.align_vertical, axes=(0,2,1))
             
+
+            shift_upd = np.minimum(0.5, np.abs(shift_upd)) * np.sign(shift_upd) * self.config.step_relaxation
+            
             # Limit the shift size and apply a step relaxation factor
-            max_step = min(np.quantile(abs(shift_upd), 0.99), 0.5); 
-            shift_upd = np.minimum(max_step, abs(shift_upd))*np.sign(shift_upd)*self.config.step_relaxation
+            #max_step = min(np.quantile(abs(shift_upd), 0.99), 0.5); 
+            #shift_upd = np.minimum(max_step, abs(shift_upd))*np.sign(shift_upd)*self.config.step_relaxation
             
             # Update shift history
             shift_history.append(shift_upd)
+            # max_update = np.quantile(abs(shift_upd), 0.995)
 
-            # Use momentum to accelerate convergence
-            if self.config.momentum_acceleration == True and ii > 2:
+            # Use momentum to accelerate convergence, but only once updates have mostly converged
+            pre_momentum_max_update = np.quantile(np.abs(shift_upd[:, 0]), 0.995)
+            if self.config.momentum_acceleration == True and ii > 2 and pre_momentum_max_update * binning < 0.5:
+                
                 shift_upd, shift_velocity = self.add_momentum_horizontal(shift_history, shift_velocity)
 
             # Apply a median shift in the vertical direction only
             shift_upd[:, 1] -= np.median(shift_upd[:, 1])
+            
+            max_step = np.minimum(np.quantile(abs(shift_upd), 0.99), 0.5)
+            shift_upd = np.minimum(max_step, abs(shift_upd)) * np.sign(shift_upd) 
 
             shift_total = shift_total + shift_upd
 
