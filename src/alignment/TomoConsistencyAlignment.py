@@ -150,7 +150,7 @@ class TomoConsistencyAlignment:
             #shift_upd = np.minimum(max_step, abs(shift_upd))*np.sign(shift_upd)*self.config.step_relaxation
             
             # Update shift history
-            shift_history.append(shift_upd)
+            shift_history.append(shift_upd) # reshape?
             # max_update = np.quantile(abs(shift_upd), 0.995)
 
             # Use momentum to accelerate convergence, but only once updates have mostly converged
@@ -166,9 +166,13 @@ class TomoConsistencyAlignment:
             shift_upd = np.minimum(max_step, abs(shift_upd)) * np.sign(shift_upd) 
 
             shift_total = shift_total + shift_upd
+            print('shift update shape:', shift_upd.shape)
+            
+            #position update smoothing?
 
             # Check the maximal step update and stop if it's below the stopping criterion
-            max_update = np.quantile(abs(shift_upd), 0.995)
+            # max_update = np.quantile(abs(shift_upd), 0.995)
+            max_update = np.max(np.quantile(np.abs(shift_upd),0.995,axis=0))
             
             if max_update*binning < self.config.min_step_size:
                 break
