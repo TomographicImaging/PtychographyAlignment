@@ -143,11 +143,11 @@ class MatlabStyleCrossCorrelationAlignment:
 
         variation = self._get_variation_field(object_roi, binning, weights)
         variation = np.real(variation)
-        total_shift_sorted = np.zeros((Nangles, 2), dtype=float)
+        total_shift_unsorted = np.zeros((Nangles, 2), dtype=float)
         filter_pos = Nangles/4
 
         for _ in range(max_iter):
-            fvar = self._filtered_fft(variation, total_shift_sorted, filter_data)
+            fvar = self._filtered_fft(variation, total_shift_unsorted, filter_data)
 
             frame_ref = fvar[:,:,theta_order]
             frame_align = fvar[:,:,np.roll(theta_order,-1)]
@@ -175,19 +175,19 @@ class MatlabStyleCrossCorrelationAlignment:
                     denom = np.convolve(np.ones(Nangles), kernel, mode='same')
                     cum_shift[:, axis] -= smoothed / denom
 
-            total_shift_sorted += cum_shift
+            total_shift_unsorted += cum_shift[inv_order,:]
 
             # Matlab then clips total_shift based on MAD to suppress outliers.
             # This is kept as a comment for a later dedicated clipping step.
-            mad_total = np.median(np.abs(total_shift_sorted - np.median(total_shift_sorted, axis=0, keepdims=True)), axis=0)
+            mad_total = np.median(np.abs(total_shift_unsorted - np.median(total_shift_unsorted, axis=0, keepdims=True)), axis=0)
             clip_limit = 6.0 * mad_total
-            total_shift_sorted = np.minimum(np.abs(total_shift_sorted), clip_limit) * np.sign(total_shift_sorted)
+            total_shift_unsorted = np.minimum(np.abs(total_shift_unsorted), clip_limit) * np.sign(total_shift_unsorted)
 
             if np.max(np.abs(cum_shift)) < 1e-6:
                 print(f'Converged after {_+1} iterations.')
                 break
 
-        total_shift = total_shift_sorted[inv_order,:]
+        total_shift = np.copy(total_shift_unsorted)
         variation_aligned = shift_tools.imshift_fft(variation, total_shift)
 
         total_shift = np.round(total_shift * binning)
