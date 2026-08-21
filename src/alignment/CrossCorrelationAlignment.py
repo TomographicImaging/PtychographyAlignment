@@ -2,7 +2,8 @@ from dataclasses import dataclass
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.ndimage import uniform_filter1d, gaussian_filter
-from scipy.signal import convolve
+from scipy.ndimage import convolve as convolve_ndimage
+from scipy.signal import convolve as convolve_signal
 from scipy.signal.windows import tukey
 from skimage.registration import phase_cross_correlation
 from utilities import shift_tools
@@ -127,18 +128,16 @@ class MatlabStyleCrossCorrelationAlignment:
 
         theta = np.asarray(theta, dtype=float)
         theta_order = np.argsort(theta)
+        inv_order = np.argsort(theta_order)
         theta_sorted = theta[theta_order]
         object_sorted = object_0[:, :, theta_order]
 
         y_slice, x_slice = roi
-        object_roi = object_sorted[y_slice, x_slice, :]
+        object_roi = object_0[y_slice, x_slice, :]
         Ny, Nx, Nangles = object_roi.shape
 
         if illum_sum is None:
             illum_sum = np.ones((Ny, Nx), dtype=float)
-        #     weights = np.ones((Ny, Nx), dtype=float)
-        # else:
-        #     illum_sum = np.asarray(illum_sum)
 
         weights = illum_sum[y_slice, x_slice] / (illum_sum[y_slice, x_slice] + 1e-1 * np.max(illum_sum))
 
@@ -150,15 +149,9 @@ class MatlabStyleCrossCorrelationAlignment:
         for _ in range(max_iter):
             fvar = self._filtered_fft(variation, total_shift_sorted, filter_data)
 
-            relative_shifts = np.zeros_like(total_shift_sorted)
-            for i in range(1, Nangles):
-                ref = fvar[:, :, i - 1]
-                align = fvar[:, :, i]
-                # shift = phase_cross_correlation(ref, align, upsample_factor=self.config.upsample_factor)
-                # phase_cross_correlation returns (dy, dx); Matlab stores [horizontal, vertical].
-                shift = find_shift_fast_2D(ref, align, sigma=filter_data, apply_fft=False, method='full_range')
-                relative_shifts[i, 0] = shift[0]
-                relative_shifts[i, 1] = shift[1]
+            frame_ref = fvar[:,:,theta_order]
+            frame_align = fvar[:,:,np.roll(theta_order,-1)]
+            relative_shifts = find_shift_fast_2D(frame_ref, frame_align, sigma=filter_data, apply_fft=False, method='full_range')
 
             # Matlab uses circshift(relative_shifts,1).
             relative_shifts = np.roll(relative_shifts, 1, axis=0)
@@ -168,16 +161,16 @@ class MatlabStyleCrossCorrelationAlignment:
             max_shift = [max(10.0, (3.0 * np.median(np.abs(relative_shifts - np.median(relative_shifts,axis=0)),axis=0))[0]),
                          max(10.0, (3.0 * np.median(np.abs(relative_shifts - np.median(relative_shifts,axis=0)),axis=0))[1])]
             relative_shifts = np.minimum(max_shift, np.abs(relative_shifts)) * np.sign(relative_shifts)
-            relative_shifts -= np.mean(relative_shifts,axis=0)
 
+            relative_shifts -= np.mean(relative_shifts,axis=0)
             cum_shift = np.cumsum(relative_shifts, axis=0)
             cum_shift -= np.mean(cum_shift, axis=0, keepdims=True)
-            smooth = int(np.ceil(filter_pos / 2.0) * 2 + 1)
 
+            smooth = int(np.ceil(filter_pos / 2.0) * 2 + 1)
+            kernel = np.ones(smooth, dtype=float) / smooth
             if np.isfinite(filter_pos) and filter_pos > 0:
                 for axis in range(2):
                     # Matlab uses convolutions with a box filter and a normalizing denominator.
-                    kernel = np.ones(smooth, dtype=float) / smooth
                     smoothed = np.convolve(cum_shift[:, axis], kernel, mode='same')
                     denom = np.convolve(np.ones(Nangles), kernel, mode='same')
                     cum_shift[:, axis] -= smoothed / denom
@@ -191,16 +184,13 @@ class MatlabStyleCrossCorrelationAlignment:
             total_shift_sorted = np.minimum(np.abs(total_shift_sorted), clip_limit) * np.sign(total_shift_sorted)
 
             if np.max(np.abs(cum_shift)) < 1e-6:
+                print(f'Converged after {_+1} iterations.')
                 break
 
-        total_shift = total_shift_sorted[np.argsort(theta_order)]
+        total_shift = total_shift_sorted[inv_order,:]
+        variation_aligned = shift_tools.imshift_fft(variation, total_shift)
 
-        test_shift = np.zeros_like(total_shift)
-        test_shift[:,0] = np.copy(total_shift[:,1])
-        test_shift[:,1] = np.copy(total_shift[:,0])
-        variation_aligned = shift_tools.imshift_fft(variation, test_shift)
-
-        total_shift = total_shift * binning
+        total_shift = np.round(total_shift * binning)
 
         if self.config.plot_correlation:
             plt.figure(figsize=(10, 3))
@@ -223,8 +213,8 @@ class MatlabStyleCrossCorrelationAlignment:
         Build the variation field used by the Matlab routine.
         This is analogous to the local gradient magnitude in align_tomo_Xcorr.m.
         """
-        dX = np.diff(object_roi, axis=0, prepend=object_roi[0:1, :, :])
-        dY = np.diff(object_roi, axis=1, prepend=object_roi[:, 0:1, :])
+        dX = convolve_ndimage(object_roi, [[[-1],[1]]], mode='constant', cval=0.0)
+        dY = convolve_ndimage(object_roi, [[[-1]],[[1]]], mode='constant', cval=0.0)
 
         variation = np.sqrt(np.abs(dX) ** 2 + np.abs(dY) ** 2)
         variation = variation * np.abs(object_roi)
@@ -239,14 +229,11 @@ class MatlabStyleCrossCorrelationAlignment:
             varmwei = (variation - mean_variation) ** 2 * weights[:, :, None]
             dev_variation = np.sqrt(np.mean(np.mean(varmwei,axis=0,keepdims=1),axis=1,keepdims=1)) / np.mean(weights)
             variation = np.minimum(variation, mean_variation + dev_variation)
-            # mean_variation = np.sum(variation * weights[:, :, None]) / np.sum(weights)
-            # dev_variation = np.sqrt(np.sum((variation - mean_variation) ** 2 * weights[:, :, None]) / np.sum(weights))
-            # variation = np.minimum(variation, mean_variation + dev_variation)
 
         if binning > 1:
             sigma = (2 * binning, 2 * binning, 0)
-            variation = gaussian_filter(variation, sigma=sigma)
-            boundary_correction = gaussian_filter(np.ones_like(variation[:, :, 0]), sigma=(2 * binning, 2 * binning))
+            variation = gaussian_filter(variation, sigma=sigma, truncate=2.0, mode='constant',cval=0.0)
+            boundary_correction = gaussian_filter(np.ones_like(variation[:, :, 0]), sigma=(2 * binning, 2 * binning), truncate=2.0, mode='constant',cval=0.0)
             variation = variation / boundary_correction[:, :, None]
             variation = variation[::binning, ::binning, :]
 
@@ -265,7 +252,7 @@ class MatlabStyleCrossCorrelationAlignment:
     def _filtered_fft(self, img, total_shift, filter_data):
         """Mirror the Matlab filtered_FFT logic: window, shift, and high-pass in Fourier space."""
 
-        ny, nx, n_angles = img.shape
+        ny, nx, _ = img.shape
         img = shift_tools.imshift_fft(img, total_shift)
 
         window = np.outer(tukey(ny, alpha=0.3), tukey(nx, alpha=0.3))
@@ -275,11 +262,11 @@ class MatlabStyleCrossCorrelationAlignment:
 
         img = np.fft.fft2(img,axes=(0,1))                
         if filter_data > 0:
-            yy, xx = np.meshgrid(np.fft.fftfreq(ny), np.fft.fftfreq(nx), indexing='ij')
+            yy, xx = np.meshgrid(np.arange(-nx//2,nx//2), np.arange(-ny//2,ny//2), indexing='ij')
             radius_sq = xx ** 2 + yy ** 2
             mean_dim = np.mean([ny, nx])
-            spectral_filter = 1.0 - np.exp(-(radius_sq / (mean_dim * filter_data) ** 2))
-            filtered = img * np.fft.fftshift(spectral_filter)[:,:,None]
+            spectral_filter = np.fft.fftshift(np.exp(1/(-(radius_sq / ((mean_dim * filter_data) ** 2))))).T
+            filtered = img * spectral_filter[:,:,None]
         else:
             filtered = img
 
@@ -345,59 +332,34 @@ def find_shift_fast_2D(o1, o2, sigma=0.0, apply_fft=True, method='full_range'):
             o1 = o1 * spectral_filter[:, :, None]
             o2 = o2 * spectral_filter[:, :, None]
 
-    xcorr = np.fft.fftshift(np.abs(np.fft.ifft2(o1 * np.conj(o2))))
+    xcorr = np.fft.fftshift(np.abs(np.fft.ifft2(o1 * np.conj(o2), axes=(0,1))), axes=(0,1))
 
     if method == 'full_range':
-        max_val = np.max(xcorr)
-        mask = np.isclose(xcorr, max_val)
 
         win = 5
-        kernel = np.ones((win, win), dtype=float)
+        kernel = np.ones((win, win, 1), dtype=float)
 
-        # mask = np.equal(xcorr, np.max(xcorr,axis=(0,1),keepdims=True))
-        # mask = convolve(mask, kernel, mode='same') > 0
+        mask = np.equal(xcorr, np.max(xcorr,axis=(0,1),keepdims=True)).astype(int)
+        mask = convolve_signal(mask, kernel, mode='same') > 0.1
 
-        # xcorr[~mask] = np.nan
-        # xcorr = np.maximum(0.0, xcorr - np.nanmin(xcorr,axis=(0,1),keepdims=True))
-        # xcorr[~mask] = 0.0
-        # xcorr = np.power(xcorr / np.nanmax(xcorr,axis=(0,1),keepdims=True), 2)
-
-        # xcorr = np.maximum(0.0, xcorr - 0.5) ** 2
-
-        # mass = np.sum(xcorr, axis=(0, 1), keepdims=True)
-
-        # if np.all(mass == 0):
-        #     return np.array([0.0, 0.0], dtype=float)
-        
-        # y_idx = np.arange(xcorr.shape[0])
-        # x_idx = np.arange(xcorr.shape[1])
-
-        # y_center = np.sum(np.sum(xcorr, axis=1, keepdims=True) * y_idx[:, None] / mass.squeeze()) - (xcorr.shape[0] // 2) - 1
-        # x_center = np.sum(np.sum(xcorr, axis=0, keepdims=True) * x_idx[None, :] / mass.squeeze()) - (xcorr.shape[1] // 2) - 1
-        # shift = np.array([x_center, y_center], dtype=float)
-        
-        mask = np.zeros_like(mask, dtype=bool)
-        for iy in range(xcorr.shape[0]):
-            for ix in range(xcorr.shape[1]):
-                y0 = max(0, iy - win // 2)
-                y1 = min(xcorr.shape[0], iy + win // 2 + 1)
-                x0 = max(0, ix - win // 2)
-                x1 = min(xcorr.shape[1], ix + win // 2 + 1)
-                if np.any(np.isclose(xcorr[y0:y1, x0:x1], max_val)):
-                    mask[iy, ix] = True
         xcorr = np.where(mask, xcorr, np.nan)
-        xcorr = np.maximum(0.0, xcorr - np.nanmin(xcorr))
+        xcorr = np.maximum(0.0, xcorr - np.nanmin(xcorr,axis=(0,1),keepdims=True))
         xcorr = np.where(mask, xcorr, 0.0)
-        xcorr = np.power(xcorr / np.nanmax(xcorr), 2)
+        xcorr = np.power(xcorr / np.max(xcorr,axis=(0,1),keepdims=True), 2)
         xcorr = np.maximum(0.0, xcorr - 0.5) ** 2
-        mass = np.sum(xcorr)
-        if mass == 0:
+
+        mass = np.sum(xcorr, axis=(0,1))
+        if np.sum(mass) == 0:
+            print('Warning: No mass in cross-correlation; returning zero shift.')
             return np.array([0.0, 0.0], dtype=float)
-        y_idx = np.arange(xcorr.shape[0])
+        
         x_idx = np.arange(xcorr.shape[1])
-        y_center = np.sum(np.sum(xcorr, axis=1)[:, None] * y_idx[:, None] / mass) - (xcorr.shape[0] // 2) - 1
-        x_center = np.sum(np.sum(xcorr, axis=0)[None, :] * x_idx[None, :] / mass) - (xcorr.shape[1] // 2) - 1
-        shift = np.array([x_center, y_center], dtype=float)
+        y_idx = np.arange(xcorr.shape[0])
+
+        x_center = np.sum(np.sum(xcorr, axis=0, keepdims=True) * x_idx[None, :, None],axis=1) / mass - (xcorr.shape[1] // 2) - 1
+        y_center = np.sum(np.sum(xcorr, axis=1, keepdims=True) * y_idx[:, None, None],axis=0) / mass - (xcorr.shape[0] // 2) - 1
+
+        shift = np.array([x_center[0,:], y_center[0,:]], dtype=float).T
 
     elif method == 'limited_range':
         mxcorr = np.mean(xcorr, axis=2)
