@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.ndimage import convolve, center_of_mass
+from scipy.signal.windows import tukey
 
 def remove_linear_ramp(proj_sum):
     # auxiliary function to subtract linear ramp from sinogram 
@@ -54,6 +55,7 @@ def centering_reconstruction(rec):
         x.append(com[1])
         y.append(com[0])
     mass = np.sum(w,axis=(1,2))
+    mass *= tukey(w.shape[0], 0.1) # apply Tukey window to reduce edge effects]
     rec_center[0] = np.mean(x*mass) / np.mean(mass)
     rec_center[1] = np.mean(y*mass) / np.mean(mass)
     

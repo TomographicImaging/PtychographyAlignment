@@ -81,10 +81,24 @@ class TomoConsistencyAlignment:
         weights_find_shift = weights_find_shift.transpose((0, 2, 1))
         [Ny, Nangles, Nx] = sinogram.shape
 
+        #### adapt vrange???
+
         # taper weights at the edges to avoid edge artefacts dominating the shift estimate
         win = tukey(Nx, 0.2).reshape(1, 1, Nx)
         if Ny > 10 and self.config.align_vertical:
             win = tukey(Ny, 0.2).reshape(Ny, 1, 1) * win
+
+        shift_upd_all = np.empty((self.config.max_iterations, Nangles, 2), dtype=np.float32)
+        shift_upd_all[0,:,:] = 0.0
+        shift_total = np.zeros((Nangles, 2), dtype=np.float32)
+        err = np.empty((1,Nangles), dtype=np.float32)
+
+        ### should already be divisible by 32
+
+        rotation_centre = np.array([Ny, Nx], dtype=np.float32) / 2
+
+        ### apodisation on weights generates circulo
+
         weights_find_shift = np.maximum(0, weights_find_shift * win)
 
         dtheta = (theta[-1] - theta[0]) / (len(theta) - 1) if len(theta) > 1 else 1.0
@@ -94,7 +108,8 @@ class TomoConsistencyAlignment:
         shift_history = []
         shift_velocity = np.zeros((Nangles, 2))
 
-        # Phase unwrapping
+        # Phase unwrapping (this is done inside the iterations in Matlab)
+        # also should be using a different method???
         if self.config.unwrap_data_method is not None:
             if self.config.unwrap_data_method == 'fft_1d':
                 sinogram_shifted = -phase_tools.unwrap2D_fft(sinogram, axis=2, boundary=None)[0]
@@ -112,6 +127,7 @@ class TomoConsistencyAlignment:
             rec = recon_tools.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights_fbp)
 
             # Mask
+            # should always apply circulo mask! 
             if self.config.apply_mask: 
                 rec = recon_tools.apply_circular_mask(rec, 0.9)
 
@@ -122,7 +138,7 @@ class TomoConsistencyAlignment:
             # Centering
             if self.config.center_reconstruction:
                 rec_center = sino_tools.centering_reconstruction(rec)
-                # print(rec_center)
+                print(rec_center)
                 
                 if ii == 0:
                     rec_center_0 = [rec.shape[2]/2,rec.shape[1]/2]
@@ -131,16 +147,22 @@ class TomoConsistencyAlignment:
                 rec = shift_tools.imshift_fft_2dax(rec, shift_rec[0], shift_rec[1], axis=(2,1))
 
                 # debugging: check if shift has moved the rec to the centre correctly
-                # rec_center = sino_tools.centering_reconstruction(rec)
-                # print(rec_center)
+                rec_center = sino_tools.centering_reconstruction(rec)
+                print(rec_center)
                         
             # Get reprojection
             sinogram_model = recon_tools.get_projections(rec, vol_geom, proj_geom)
 
             # Calculate optimal shift
-            MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
-            shift_upd, err = self.find_optimal_shift_ax(sinogram_model, sinogram_shifted, weights_find_shift, MASS, self.config.high_pass_filter, self.config.unwrap_data_method, 
-                                                      align_horizontal=self.config.align_horizontal, align_vertical=self.config.align_vertical, axes=(0,2,1))
+            # MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
+            MASS = np.median(np.mean(abs(sinogram_shifted), axis=(0,1)))
+            shift_upd, err = self.find_optimal_shift_ax(sinogram_model, sinogram_shifted, 
+                                                        weights_find_shift, MASS, 
+                                                        self.config.high_pass_filter, 
+                                                        self.config.unwrap_data_method, 
+                                                        align_horizontal=self.config.align_horizontal, 
+                                                        align_vertical=self.config.align_vertical, 
+                                                        axes=(0,2,1))
             
 
             shift_upd = np.minimum(0.5, np.abs(shift_upd)) * np.sign(shift_upd) * self.config.step_relaxation
@@ -338,7 +360,7 @@ class TomoConsistencyAlignment:
         # scaling parameters
         alpha = 2.0
         gain = 0.5
-        friction = np.clip(alpha * decay, 0, 1)
+        friction = np.minimum(np.maximum(alpha * decay, 0), 1)
 
         # update velocity map
         velocity_map[:,axis] = (1 - friction) * velocity_map[:, axis] + shift[:, axis]

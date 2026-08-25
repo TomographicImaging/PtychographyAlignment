@@ -187,7 +187,7 @@ def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
         d_img - phase gradient array
     '''
     
-    if np.isreal(img.all()):
+    if np.isreal(img).all():
         img = np.exp(1j*img)
 
     # np.testing.assert_array_less(0, step, err_msg='Difference step has to be > 0') # it should be less or equal, but I couldn't find the right np.testing.assert
@@ -196,7 +196,12 @@ def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
     # air around sample 
     
     pad_distance = 8
-    pad_widths = np.roll([pad_distance,0,0], ax-1)
+    if ax == 1:
+        pad_widths = [0,pad_distance,0]
+    elif ax == 0:
+        pad_widths = [pad_distance,0,0]
+    elif ax == 2:
+        pad_widths = [0,0,pad_distance]
     pad_config = [(w,w) for w in pad_widths]
     img = np.pad(img,pad_config,mode = 'symmetric')
     
