@@ -53,6 +53,14 @@ def setup_tomoconsistency(img):
     return img_grad, weights_find_shift, convolution_result, ROI
 
 
+def test_tomoconsistency_config_keeps_cor_offset():
+    """Regression test: CoR offset must remain available in the Python config."""
+    config = TomoConsistencyConfig(cor_offset=12.5)
+    aligner = TomoConsistencyAlignment(config)
+
+    assert aligner.config.cor_offset == 12.5
+
+
 def test_cross_correlation_alignment():
     """
     This is a functional test of the cross-correlation alignment using the Connor Wright dataset.

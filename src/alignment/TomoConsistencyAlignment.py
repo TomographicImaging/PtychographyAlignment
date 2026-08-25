@@ -35,6 +35,7 @@ from scipy.signal.windows import tukey
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
 
+# from src.validating_methods.test_imshift import Npix
 from utilities import phase_tools, recon_tools, shift_tools, sino_tools
 
 @dataclass
@@ -51,6 +52,7 @@ class TomoConsistencyConfig:
     align_horizontal: bool = True
     align_vertical: bool = False
     apply_positivity: bool = True
+    # cor_offset: float = 0.0
 
 class TomoConsistencyAlignment:
     """
@@ -94,12 +96,19 @@ class TomoConsistencyAlignment:
         err = np.empty((1,Nangles), dtype=np.float32)
 
         ### should already be divisible by 32
-
-        rotation_centre = np.array([Ny, Nx], dtype=np.float32) / 2
+        # rotation_center = np.array([Ny, Nx], dtype=np.float32) / 2.0
+        # if self.config.cor_offset != 0:
+        #     # Match the MATLAB implementation: the CoR offset is applied in the
+        #     # detector coordinate system, after binning, before the reprojection.
+        #     rotation_center[1] += self.config.cor_offset / float(binning)
 
         ### apodisation on weights generates circulo
 
         weights_find_shift = np.maximum(0, weights_find_shift * win)
+
+        Npix = []
+        [_, circulo] = recon_tools.apply_3D_apodization(np.zeros((Nx, Nx, Nangles)), 0, 0, 5)
+        # print('circulo.shape: ', circulo.shape)
 
         dtheta = (theta[-1] - theta[0]) / (len(theta) - 1) if len(theta) > 1 else 1.0
         weights_fbp = np.full(len(theta), dtheta, dtype=np.float32)
@@ -123,13 +132,20 @@ class TomoConsistencyAlignment:
             t0 = time.time()
 
             # FBP
-            vol_geom, proj_geom = recon_tools.init_astra_vec(Nx, Ny, theta, shift_total)
+            vol_geom, proj_geom = recon_tools.init_astra_vec(
+                Nx,
+                Ny,
+                theta,
+                shift_total,
+            )
             rec = recon_tools.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights_fbp)
 
             # Mask
-            # should always apply circulo mask! 
+            
             if self.config.apply_mask: 
                 rec = recon_tools.apply_circular_mask(rec, 0.9)
+
+            rec *= circulo  # apply apodization to reduce edge artefacts
 
             # Remove negative values
             if self.config.apply_positivity:
@@ -138,17 +154,17 @@ class TomoConsistencyAlignment:
             # Centering
             if self.config.center_reconstruction:
                 rec_center = sino_tools.centering_reconstruction(rec)
-                print(rec_center)
+                # print(rec_center)
                 
                 if ii == 0:
-                    rec_center_0 = [rec.shape[2]/2,rec.shape[1]/2]
+                    rec_center_0 = [rec.shape[2]/2,rec.shape[1]/2] #rec_center #[0,0] #
 
                 shift_rec = -0.5*(rec_center - rec_center_0)
                 rec = shift_tools.imshift_fft_2dax(rec, shift_rec[0], shift_rec[1], axis=(2,1))
 
                 # debugging: check if shift has moved the rec to the centre correctly
-                rec_center = sino_tools.centering_reconstruction(rec)
-                print(rec_center)
+                # rec_center = sino_tools.centering_reconstruction(rec)
+                # print(rec_center)
                         
             # Get reprojection
             sinogram_model = recon_tools.get_projections(rec, vol_geom, proj_geom)
@@ -188,7 +204,7 @@ class TomoConsistencyAlignment:
             shift_upd = np.minimum(max_step, abs(shift_upd)) * np.sign(shift_upd) 
 
             shift_total = shift_total + shift_upd
-            print('shift update shape:', shift_upd.shape)
+            # print('shift update shape:', shift_upd.shape)
             
             #position update smoothing?
 
