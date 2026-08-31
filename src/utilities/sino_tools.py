@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.ndimage import convolve, center_of_mass
+from scipy.signal.windows import tukey
 
 def remove_linear_ramp(proj_sum):
     # auxiliary function to subtract linear ramp from sinogram 
@@ -23,7 +24,7 @@ def remove_linear_ramp(proj_sum):
     
     return proj_sum
 
-def centering_reconstruction(rec):
+def centering_reconstruction(rec, use_shift=False):
     """
     Estimate the 2D centre of mass of a 3D reconstruction volume.
 
@@ -46,14 +47,23 @@ def centering_reconstruction(rec):
     
     eps = np.finfo(rec.dtype).eps
     w = np.sqrt(np.maximum(0,rec)) + eps
+
+    mass = np.sum(w,axis=(1,2))
+    mass *= tukey(w.shape[0], 0.1) # apply Tukey window to reduce edge effects
+
     x = []
     y = []
     rec_center = np.zeros((2))
-    for l in range(w.shape[0]):
+    for l in range(w.shape[0]): 
         com = center_of_mass(w[l,:,:])
         x.append(com[1])
         y.append(com[0])
-    mass = np.sum(w,axis=(1,2))
+
+    if use_shift:
+        # Use the centre of mass of the mass distribution to estimate the shift
+        x -= rec.shape[2]/2 - 0.5
+        y -= rec.shape[1]/2 - 0.5
+        
     rec_center[0] = np.mean(x*mass) / np.mean(mass)
     rec_center[1] = np.mean(y*mass) / np.mean(mass)
     

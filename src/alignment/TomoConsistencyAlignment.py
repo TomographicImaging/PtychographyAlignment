@@ -31,9 +31,11 @@ from dataclasses import dataclass
 import numpy as np
 import time
 from scipy.optimize import fmin
+from scipy.signal.windows import tukey
 import matplotlib.pyplot as plt
 from IPython.display import clear_output
 
+# from src.validating_methods.test_imshift import Npix
 from utilities import phase_tools, recon_tools, shift_tools, sino_tools
 
 @dataclass
@@ -51,6 +53,7 @@ class TomoConsistencyConfig:
     align_horizontal: bool = True
     align_vertical: bool = False
     apply_positivity: bool = True
+    # cor_offset: float = 0.0
 
 class TomoConsistencyAlignment:
     """
@@ -81,6 +84,33 @@ class TomoConsistencyAlignment:
         weights_find_shift = weights_find_shift.transpose((0, 2, 1))
         [Ny, Nangles, Nx] = sinogram.shape
 
+        #### adapt vrange???
+
+        # taper weights at the edges to avoid edge artefacts dominating the shift estimate
+        win = tukey(Nx, 0.2).reshape(1, 1, Nx)
+        if Ny > 10 and self.config.align_vertical:
+            win = tukey(Ny, 0.2).reshape(Ny, 1, 1) * win
+
+        shift_upd_all = np.empty((self.config.max_iterations, Nangles, 2), dtype=np.float32)
+        shift_upd_all[0,:,:] = 0.0
+        shift_total = np.zeros((Nangles, 2), dtype=np.float32)
+        err = np.empty((1,Nangles), dtype=np.float32)
+
+        ### should already be divisible by 32
+        # rotation_center = np.array([Ny, Nx], dtype=np.float32) / 2.0
+        # if self.config.cor_offset != 0:
+        #     # Match the MATLAB implementation: the CoR offset is applied in the
+        #     # detector coordinate system, after binning, before the reprojection.
+        #     rotation_center[1] += self.config.cor_offset / float(binning)
+
+        ### apodisation on weights generates circulo
+
+        weights_find_shift = np.maximum(0, weights_find_shift * win)
+
+        Npix = []
+        [_, circulo] = recon_tools.apply_3D_apodization(np.zeros((Nx, Nx, Nangles)), 0, 0, 5)
+        # print('circulo.shape: ', circulo.shape)
+
         dtheta = (theta[-1] - theta[0]) / (len(theta) - 1) if len(theta) > 1 else 1.0
         weights_fbp = np.full(len(theta), dtheta, dtype=np.float32)
         
@@ -88,7 +118,8 @@ class TomoConsistencyAlignment:
         shift_history = []
         shift_velocity = np.zeros((Nangles, 2))
 
-        # Phase unwrapping
+        # Phase unwrapping (this is done inside the iterations in Matlab)
+        # also should be using a different method???
         if self.config.unwrap_data_method is not None:
             if self.config.unwrap_data_method == 'fft_1d':
                 sinogram_shifted = -phase_tools.unwrap2D_fft(sinogram, axis=self.config.unwrap_axis, boundary=None)[0]
@@ -102,12 +133,20 @@ class TomoConsistencyAlignment:
             t0 = time.time()
 
             # FBP
-            vol_geom, proj_geom = recon_tools.init_astra_vec(Nx, Ny, theta, shift_total)
+            vol_geom, proj_geom = recon_tools.init_astra_vec(
+                Nx,
+                Ny,
+                theta,
+                shift_total,
+            )
             rec = recon_tools.FBP_astra(sinogram_shifted, vol_geom, proj_geom, weights_fbp)
 
             # Mask
+            
             if self.config.apply_mask: 
                 rec = recon_tools.apply_circular_mask(rec, 0.9)
+
+            rec *= circulo  # apply apodization to reduce edge artefacts
 
             # Remove negative values
             if self.config.apply_positivity:
@@ -119,7 +158,7 @@ class TomoConsistencyAlignment:
                 # print(rec_center)
                 
                 if ii == 0:
-                    rec_center_0 = [rec.shape[2]/2,rec.shape[1]/2]
+                    rec_center_0 = [rec.shape[2]/2,rec.shape[1]/2] #rec_center #[0,0] #
 
                 shift_rec = -0.5*(rec_center - rec_center_0)
                 rec = shift_tools.imshift_fft_2dax(rec, shift_rec[0], shift_rec[1], axis=(2,1))
@@ -132,28 +171,47 @@ class TomoConsistencyAlignment:
             sinogram_model = recon_tools.get_projections(rec, vol_geom, proj_geom)
 
             # Calculate optimal shift
-            MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
-            shift_upd, err = self.find_optimal_shift_ax(sinogram_model, sinogram_shifted, weights_find_shift, MASS, self.config.high_pass_filter, self.config.unwrap_data_method, 
-                                                      align_horizontal=self.config.align_horizontal, align_vertical=self.config.align_vertical, axes=(0,2,1))
+            # MASS = np.median(sinogram_shifted * np.mean(abs(sinogram_shifted), axis=(0,1)))
+            MASS = np.median(np.mean(abs(sinogram_shifted), axis=(0,1)))
+            shift_upd, err = self.find_optimal_shift_ax(sinogram_model, sinogram_shifted, 
+                                                        weights_find_shift, MASS, 
+                                                        self.config.high_pass_filter, 
+                                                        self.config.unwrap_data_method, 
+                                                        align_horizontal=self.config.align_horizontal, 
+                                                        align_vertical=self.config.align_vertical, 
+                                                        axes=(0,2,1))
+            
+
+            shift_upd = np.minimum(0.5, np.abs(shift_upd)) * np.sign(shift_upd) * self.config.step_relaxation
             
             # Limit the shift size and apply a step relaxation factor
-            max_step = min(np.quantile(abs(shift_upd), 0.99), 0.5); 
-            shift_upd = np.minimum(max_step, abs(shift_upd))*np.sign(shift_upd)*self.config.step_relaxation
+            #max_step = min(np.quantile(abs(shift_upd), 0.99), 0.5); 
+            #shift_upd = np.minimum(max_step, abs(shift_upd))*np.sign(shift_upd)*self.config.step_relaxation
             
             # Update shift history
-            shift_history.append(shift_upd)
+            shift_history.append(shift_upd) # reshape?
+            # max_update = np.quantile(abs(shift_upd), 0.995)
 
-            # Use momentum to accelerate convergence
-            if self.config.momentum_acceleration == True and ii > 2:
+            # Use momentum to accelerate convergence, but only once updates have mostly converged
+            pre_momentum_max_update = np.quantile(np.abs(shift_upd[:, 0]), 0.995)
+            if self.config.momentum_acceleration == True and ii > 2 and pre_momentum_max_update * binning < 0.5:
+                
                 shift_upd, shift_velocity = self.add_momentum_horizontal(shift_history, shift_velocity)
 
             # Apply a median shift in the vertical direction only
             shift_upd[:, 1] -= np.median(shift_upd[:, 1])
+            
+            max_step = np.minimum(np.quantile(abs(shift_upd), 0.99), 0.5)
+            shift_upd = np.minimum(max_step, abs(shift_upd)) * np.sign(shift_upd) 
 
             shift_total = shift_total + shift_upd
+            # print('shift update shape:', shift_upd.shape)
+            
+            #position update smoothing?
 
             # Check the maximal step update and stop if it's below the stopping criterion
-            max_update = np.quantile(abs(shift_upd), 0.995)
+            # max_update = np.quantile(abs(shift_upd), 0.995)
+            max_update = np.max(np.quantile(np.abs(shift_upd),0.995,axis=0))
             
             if max_update*binning < self.config.min_step_size:
                 break
@@ -319,7 +377,7 @@ class TomoConsistencyAlignment:
         # scaling parameters
         alpha = 2.0
         gain = 0.5
-        friction = np.clip(alpha * decay, 0, 1)
+        friction = np.minimum(np.maximum(alpha * decay, 0), 1)
 
         # update velocity map
         velocity_map[:,axis] = (1 - friction) * velocity_map[:, axis] + shift[:, axis]

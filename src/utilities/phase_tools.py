@@ -36,8 +36,7 @@ def get_img_grad(img, axis=None, split=1):
 
     if 1 in axis:
         # Compute frequency vector for X-axis
-        X = 2j * np.pi * np.fft.ifftshift(-np.arange(-Np[1]//2, int(np.ceil(Np[1]/2)))) / Np[1]
-        # X = 2j * np.pi * np.fft.ifftshift(-np.arange(-Np[1]//2, int(np.floor(Np[1]/2)))) / Np[1]
+        X = 2j * np.pi * np.fft.ifftshift(np.arange(-(Np[1]//2), np.ceil(Np[1]/2))) / Np[1]
         # Apply partial FFT and multiply by frequency
         dX = shift_tools.fft_partial(img, 1, 1, split, False)
         shape = [1] * img.ndim
@@ -50,11 +49,7 @@ def get_img_grad(img, axis=None, split=1):
 
     if 0 in axis:
         # Compute frequency vector for Y-axis
-        # print("Np[0]:", Np[0])
-        Y = 2j * np.pi * np.fft.ifftshift(-np.arange(-float(Np[0])//2, int(np.ceil(float(Np[0])/2)))) / Np[0]
-        # Y = 2j * np.pi * np.fft.ifftshift(-np.arange(-float(Np[0])//2, int(np.floor(float(Np[0])/2)))) / Np[0]
-        # print('-Np[0]//2:', -float(Np[0])//2, 'int(np.floor(Np[0]/2)):', int(np.floor(float(Np[0])/2)))
-        # print("Y shape:", Y.shape)
+        Y = 2j * np.pi * np.fft.ifftshift(np.arange(-(Np[0]//2), np.ceil(Np[0]/2))) / Np[0]
         # Apply partial FFT and multiply by frequency
         dY = shift_tools.fft_partial(img, 0, 2, split, False)
         shape = [1] * img.ndim
@@ -194,7 +189,7 @@ def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
         d_img - phase gradient array
     '''
     
-    if np.isreal(img.all()):
+    if np.isreal(img).all():
         img = np.exp(1j*img)
 
     # np.testing.assert_array_less(0, step, err_msg='Difference step has to be > 0') # it should be less or equal, but I couldn't find the right np.testing.assert
@@ -203,7 +198,12 @@ def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
     # air around sample 
     
     pad_distance = 8
-    pad_widths = np.roll([pad_distance,0,0], ax-1)
+    if ax == 1:
+        pad_widths = [0,pad_distance,0]
+    elif ax == 0:
+        pad_widths = [pad_distance,0,0]
+    elif ax == 2:
+        pad_widths = [0,0,pad_distance]
     pad_config = [(w,w) for w in pad_widths]
     img = np.pad(img,pad_config,mode = 'symmetric')
     #print('get_phase_gradient_1D: img shape after padding:', img.shape)
@@ -646,10 +646,8 @@ def get_img_int_2D(dX, dY):
 
     fD = np.fft.fft2(dX + 1j * dY, axes=(0,1))
 
-    xgrid = np.fft.ifftshift(np.arange(-Nx//2, np.ceil(Nx/2))) / Nx
-    ygrid = np.fft.ifftshift(np.arange(-Ny//2, np.ceil(Ny/2))) / Ny
-    # xgrid = np.fft.ifftshift(np.arange(-Nx//2, np.floor(Nx/2))) / Nx
-    # ygrid = np.fft.ifftshift(np.arange(-Ny//2, np.floor(Ny/2))) / Ny
+    xgrid = np.fft.ifftshift(np.arange(-(Nx//2), np.ceil(Nx/2))) / Nx
+    ygrid = np.fft.ifftshift(np.arange(-(Ny//2), np.ceil(Ny/2))) / Ny
     X, Y = np.meshgrid(xgrid, ygrid)
     filter = np.exp(2j * np.pi * (X + Y))
     filter = filter/ (2j * np.pi * (X + 1j * Y))
