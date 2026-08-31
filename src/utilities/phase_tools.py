@@ -24,6 +24,7 @@ def get_img_grad(img, axis=None, split=1):
     # Check if image is real
     is_real = np.isrealobj(img)
     Np = img.shape
+    #print('get_img_grad: img shape:', img.shape)
 
     dX = None
     dY = None
@@ -53,6 +54,7 @@ def get_img_grad(img, axis=None, split=1):
         dY = shift_tools.fft_partial(img, 0, 2, split, False)
         shape = [1] * img.ndim
         shape[0] = Np[0]
+        # print('Y shape:', Y.shape, 'dY shape:', dY.shape)
         dY = dY * np.broadcast_to(Y.reshape(shape),Np)
         # Apply inverse partial FFT
         dY = shift_tools.fft_partial(dY, 0, 2, split, True)
@@ -204,9 +206,9 @@ def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
         pad_widths = [0,0,pad_distance]
     pad_config = [(w,w) for w in pad_widths]
     img = np.pad(img,pad_config,mode = 'symmetric')
-    
+    #print('get_phase_gradient_1D: img shape after padding:', img.shape)
     img = sino_tools.smooth_edges(img, pad_distance, [ax]) # this is from their utils
-
+    #print('get_phase_gradient_1D: img shape after smoothing:', img.shape)
     if step == 0:
         # analytic formula (sensitive to noise) but faster 
         img = img / (abs(img) + np.finfo(float).eps)
@@ -214,18 +216,19 @@ def get_phase_gradient_1D(img, ax=1, step=0.5, shift=0):
         d_img = np.imag(np.conj(img)*d_img)
     else:
         d_img = np.angle(shift_tools.imshift_fft_ax(img,-step+shift,ax) * np.conj(shift_tools.imshift_fft_ax(img,step+shift,ax)))/(2*step)
-    
+    #print('get_phase_gradient_1D: d_img shape before removing padding:', d_img.shape)
     # remove padding 
         
     # Create slicing indices
     ind = [slice(None)] * d_img.ndim
-    ind[0] = slice(pad_distance, d_img.shape[ax-1] - pad_distance - 1)
-    
+    # ind[0] = slice(pad_distance, d_img.shape[ax-1] - pad_distance - 1)
+    ind[0] = slice(pad_distance, d_img.shape[ax-1] - pad_distance )
     # Apply circular shift to the list of slices
     ind = np.roll(ind, ax - 1)
 
     d_img = d_img[tuple(ind)]
-    
+    #print('tuple[ind(ind)]:', tuple(ind))
+    #print('get_phase_gradient_1D: d_img shape after removing padding:', d_img.shape)
 
     return d_img
 
@@ -278,6 +281,7 @@ def get_img_int_1D(grad_array, ax=0):
     if ax == 1:  # MATLAB axis=2 → Python axis=1
         grad_array_fft = np.fft.fft(grad_array, axis=1)
         xgrid = np.fft.ifftshift(np.arange(-(Np[1] // 2), int(np.ceil(Np[1] / 2)))) / Np[1]
+        # xgrid = np.fft.ifftshift(np.arange(-(Np[1] // 2), int(np.floor(Np[1] / 2)))) / Np[1]
 
         # Integration filter
         X = np.exp(2j * np.pi * xgrid)
@@ -294,6 +298,7 @@ def get_img_int_1D(grad_array, ax=0):
     elif ax == 0:  # MATLAB axis=1 → Python axis=0
         grad_array_fft = np.fft.fft(grad_array, axis=0)
         ygrid = np.fft.ifftshift(np.arange(-(Np[0] // 2), int(np.ceil(Np[0] / 2)))) / Np[0]
+        # ygrid = np.fft.ifftshift(np.arange(-(Np[0] // 2), int(np.floor(Np[0] / 2)))) / Np[0]
 
         # Integration filter
         Y = np.exp(2j * np.pi * ygrid)
@@ -310,7 +315,8 @@ def get_img_int_1D(grad_array, ax=0):
     elif ax == 2:
         grad_array_fft = np.fft.fft(grad_array, axis=2)
         zgrid = np.fft.ifftshift(np.arange(-(Np[2] // 2), int(np.ceil(Np[2] / 2)))) / Np[2]
-
+        # zgrid = np.fft.ifftshift(np.arange(-(Np[2] // 2), int(np.floor(Np[2] / 2)))) / Np[2]
+        
         # Integration filter
         Z = np.exp(2j * np.pi * zgrid)
         Z = Z / (2j * np.pi * zgrid)
@@ -455,10 +461,10 @@ def unwrap2D_fft(phase_diff, axis, boundary=None, step=0):
     # If input is complex, compute phase gradient
     if not np.isrealobj(phase_diff):
         phase_diff = get_phase_gradient_1D(phase_diff, ax=axis, step=step)
-
+    #print('unwrap2D_fft: phase_diff shape:', phase_diff.shape)
     # Integrate to get phase
     phase = np.real(get_img_int_1D(phase_diff, axis))
-
+    #print('unwrap2D_fft: phase shape:', phase.shape)
     # Remove ramp if empty_region provided and axis == 2
     if boundary is not None:  # MATLAB axis=2 → Python axis=1
         if axis != 1:

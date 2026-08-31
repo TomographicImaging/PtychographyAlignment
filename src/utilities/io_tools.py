@@ -1,5 +1,6 @@
 import h5py
 import numpy as np
+from typing import Dict, Tuple, List
 
 def load_data(nxsfileName, data_key= '/entry1/tomo_entry/data/data_unwrapped', angle_key = '/entry1/tomo_entry/data/rotation_angle', probe_key = '/entry1/pty_entry/probe/', 
               y_idx=[0,None], x_idx=[0,None], angle_idx=[0,None,1]):
@@ -78,3 +79,7 @@ def load_data(nxsfileName, data_key= '/entry1/tomo_entry/data/data_unwrapped', a
     else:
         raise ValueError('File format not supported. Please provide a .h5, .nxs, .hdf5 or .mat file.')
     return projections, angles_rad, probes
+
+
+def print_keys(name, obj):
+    print(name, type(obj))
