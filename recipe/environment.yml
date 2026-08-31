@@ -16,3 +16,4 @@ dependencies:
   - pytest                    # to run the tests locally
   - pip
   - astra-toolbox=2.1=cuda*
+  - ipympl
