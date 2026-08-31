@@ -21,7 +21,7 @@ The [`src`](src) contains the core code for the package. In particular, the code
 - [`validating_methods`](src/validating_methods/) contains work in progress methods validation
 - [`viewer`](src/viewer/) contains code to interactively view data using the CIL viewer
 
-The [`tests`](tests) folder contains (some) tests of the methods developed, whereby [`helpers`](tests/helpers) contains small utility functions or classes for tests. 
+The [`tests`](tests) folder contains (some) tests of the methods developed, whereby [`helpers`](tests/helpers) contains small utility functions or classes for tests. As of 31/08/2026, the tests are likely to fail - this needs to be looked at and fixed. We recommend using an example dataset which is well-understood in order to test the pipeline (e.g. the example dataset in 10.5281/zenodo.3539550). 
 
 Note: 
 Frequently used data can be saved in [`paths`](src/config/paths.py) and [`user_paths`](src/config/user_paths.py) to be called in multiple places.
@@ -111,3 +111,35 @@ out : type
 type_without_description
 """
 ```
+
+### Acknowledgement
+
+This package is a modified and translated version of code from the
+“cSAXS matlab package” https://zenodo.org/records/3539550 developed 
+by the CXS group https://www.psi.ch/en/sls/csaxs/software, at the Paul 
+Scherrer Institute (PSI), Switzerland.
+
+Original work:
+Copyright (c) 2017 Paul Scherrer Institute (http://www.psi.ch)
+Author: CXS group, PSI
+
+Licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0
+International (CC BY-NC-SA 4.0).
+
+This version:
+Copyright 2026 United Kingdom Research and Innovation (UKRI) and Diamond Light Source
+Modifications: Translated to Python, adapted and extended.
+
+This work is distributed under the same license as the original.
+You may not use this work for commercial purposes.
+You must give appropriate credit and indicate if changes were made.
+
+For publications using this software, please acknowledge:
+"This work uses a translated and adapted version of the
+'cSAXS tomo package' developed by the CXS group,
+Paul Scherrer Institut, Switzerland." and cite  M. Odstrcil, M. Holler, J. Holler, 
+M. Guizar-Sicairos,"Alignment methods for nanotomography with deep sub-pixel accuracy", 
+Opt. Express, (2019).
+
+Full license text: https://creativecommons.org/licenses/by-nc-sa/4.0/
+

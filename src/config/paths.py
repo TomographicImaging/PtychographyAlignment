@@ -5,22 +5,21 @@ except ImportError:
 
 #experimental data from Diamond
 
-#pollen_filepath = DATA_ROOT / "Experimental" / "pollen_Volpe" / "pty_tomo_NX.h5"
 pollen_filepath = DATA_ROOT / "pollen" / "pty_tomo_NX.h5"
 pollen_data_key = '/entry1/tomo_entry/data/data'
 pollen_angle_key = '/entry1/tomo_entry/data/rotation_angle'
 
-NiTi_filepath = DATA_ROOT / "Experimental" / "NiTi_Zifan" / "tomo_ptycho_394043_0_499_phase.nxs"
+NiTi_filepath = DATA_ROOT / "Experimental" / "NiTi" / "tomo_ptycho_phase.nxs"
 NiTi_data_key='/entry/data/data'
 NiTi_angle_key ='/entry/data/rotation_angle'
 
-TiAlloy_filepath = DATA_ROOT / "Experimental" / "TiAlloy_Kuda" / "projectionsSorted_phase.h5"
-TiAlloy_unwrapped_filepath = DATA_ROOT / "Experimental" / "TiAlloy_Kuda" / "projectionsSorted_unwrapped_phase.h5"
+TiAlloy_filepath = DATA_ROOT / "Experimental" / "TiAlloy" / "projectionsSorted_phase.h5"
+TiAlloy_unwrapped_filepath = DATA_ROOT / "Experimental" / "TiAlloy" / "projectionsSorted_phase.h5"
 TiAlloy_data_key='/data'
 TiAlloy_angle_key ='/entry/data/rotation_angle'
 
 # battery data
-battery_filepath = DATA_ROOT / "Experimental" / "battery" / "scan_275019_275199_tomo_complex.nxs"
+battery_filepath = DATA_ROOT / "Experimental" / "battery" / "scan_tomo_complex.nxs"
 battery_data_key = '/entry1/data'
 battery_angle_key = '/entry1/rotation_angle'
 
